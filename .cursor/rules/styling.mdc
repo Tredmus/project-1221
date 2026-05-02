@@ -1,0 +1,75 @@
+---
+description: Imperium UI/styling rules
+globs: ["app/**/*.tsx", "components/**/*.tsx", "app/**/*.css"]
+alwaysApply: true
+---
+
+# UI rules
+
+## The aesthetic in one sentence
+
+Byzantine imperial court — dark, refined, parchment + deep burgundy +
+aged gold. Not generic medieval fantasy.
+
+## Color tokens
+
+All colors live as CSS variables in `app/globals.css`:
+
+- `--color-ink` — near-black background tone
+- `--color-parchment` / `parchment-dark` / `parchment-deep` — body text
+  family, light-on-dark
+- `--color-imperial` / `imperial-deep` / `imperial-shadow` — burgundies
+- `--color-gold` / `gold-dim` / `gold-bright` — accents and headings
+- `--color-verdigris` — accent green (gems, secondary actions)
+- `--color-blood` — error, danger
+- `--color-bone`, `--color-ash` — neutral surfaces
+
+Tailwind aliases these as `bg-imperial`, `text-gold`, etc. Use the
+Tailwind aliases from components; reach into `rgb(var(--color-*))` from
+inside SVG attributes or inline styles where Tailwind can't reach.
+
+The variables themselves store space-separated RGB triples without an
+alpha channel (e.g. `--color-gold: 201 164 76;`). Tailwind's opacity
+modifiers (`bg-gold/20`, `text-parchment/80`) compose them via
+`rgb(var(--color-X) / <alpha-value>)`.
+
+## Typography
+
+- Display headings (`h1`–`h4`, panel headings, buttons): **Cinzel**, via
+  the `font-display` Tailwind family. Letter-spaced, often uppercase.
+- Body text: **Lora**, via `font-body` (the default `body` style).
+- Decorative serif (italics, blurbs): **Cormorant Garamond**, via
+  `font-serif`.
+- Never introduce sans-serif. Never use system-ui defaults.
+
+## Reusable component classes
+
+Defined in `app/globals.css` under `@layer components`:
+
+- `.panel` — bordered, gold-trimmed surface
+- `.panel-heading` — uppercase tracking-imperial heading bar
+- `.panel-body` — padded inner area
+- `.btn-imperial` — primary action button
+- `.btn-ghost` — secondary action button
+- `.input-imperial` — form input
+- `.label-imperial` — form label
+- `.divider-laurel` — gold gradient divider line
+
+Prefer composing these over inventing new ones. If you need a new
+primitive, add it to `globals.css` so it's available globally.
+
+## Numbers
+
+Always use `tabular-nums` for currency, AP, stats. Localised digits
+(`Number.toLocaleString("en-US")` or `Intl.NumberFormat`) for thousands
+separators in coin amounts.
+
+## Voice
+
+Copy is restrained and slightly archaic.
+
+- "Forge a new identity in the empire."
+- "The dice are cast at every midnight."
+- "Your saddlebag is empty. Work, trade, or fight to fill it."
+
+Avoid: "Welcome adventurer!", "Let's go!", "Awesome!", emojis.

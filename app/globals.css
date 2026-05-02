@@ -1,0 +1,169 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================================================
+   Imperium — Design Tokens
+   ----------------------------------------------------------------
+   Colors are stored as space-separated RGB triples without an
+   alpha channel so Tailwind opacity modifiers (`bg-gold/20`) can
+   compose them via `rgb(var(--color-X) / <alpha-value>)`. When
+   you need a color in raw CSS, wrap it: `rgb(var(--color-gold))`.
+   ================================================================ */
+
+:root {
+  /* Ink and parchment */
+  --color-ink: 22 17 11;
+  --color-parchment: 243 231 200;
+  --color-parchment-dark: 216 198 154;
+  --color-parchment-deep: 184 156 102;
+
+  /* Imperial purples and crimsons */
+  --color-imperial: 92 26 43;
+  --color-imperial-deep: 58 15 26;
+  --color-imperial-shadow: 28 10 16;
+
+  /* Gold */
+  --color-gold: 201 164 76;
+  --color-gold-dim: 138 107 42;
+  --color-gold-bright: 233 200 122;
+
+  /* Accents */
+  --color-verdigris: 74 107 90;
+  --color-bone: 235 226 203;
+  --color-ash: 42 37 32;
+  --color-blood: 110 31 31;
+
+  /* Surface gradients (concrete hex/rgb — not Tailwind-aware) */
+  --bg-parchment: radial-gradient(ellipse at 30% 20%, #1a1410 0%, #100b08 60%, #07050a 100%);
+  --bg-vellum: linear-gradient(180deg, #1c1611 0%, #0f0c08 100%);
+
+  /* Typography */
+  --font-display: "Cinzel", Georgia, serif;
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-body: "Lora", Georgia, serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg-parchment);
+  color: rgb(var(--color-parchment));
+  font-family: var(--font-body);
+  font-feature-settings: "liga" 1, "dlig" 1, "onum" 1;
+  min-height: 100vh;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(
+      circle at 1px 1px,
+      rgb(var(--color-gold) / 0.04) 1px,
+      transparent 0
+    );
+  background-size: 24px 24px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#__next,
+main,
+.page-root {
+  position: relative;
+  z-index: 1;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  color: rgb(var(--color-gold-bright));
+}
+
+h1 {
+  font-size: clamp(1.75rem, 2.4vw, 2.5rem);
+  font-weight: 600;
+}
+
+h2 {
+  font-size: clamp(1.35rem, 1.8vw, 1.75rem);
+  font-weight: 600;
+}
+
+h3 {
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+
+a {
+  color: rgb(var(--color-gold));
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+a:hover {
+  color: rgb(var(--color-gold-bright));
+}
+
+::selection {
+  background: rgb(var(--color-imperial));
+  color: rgb(var(--color-gold-bright));
+}
+
+/* ================================================================
+   Reusable component classes
+   ================================================================ */
+
+@layer components {
+  .panel {
+    @apply rounded-sm border border-gold/20 bg-ash/70 backdrop-blur-sm shadow-seal;
+  }
+
+  .panel-heading {
+    @apply font-display text-gold uppercase tracking-imperial text-xs border-b border-gold/15 px-4 py-2;
+  }
+
+  .panel-body {
+    @apply p-4;
+  }
+
+  .btn-imperial {
+    @apply inline-flex items-center justify-center gap-2
+      rounded-sm border border-gold/40 bg-imperial/80
+      px-4 py-2 font-display uppercase tracking-imperial text-xs
+      text-gold-bright shadow-seal transition
+      hover:border-gold hover:bg-imperial hover:text-bone
+      disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+      rounded-sm border border-gold/20 px-3 py-1.5
+      font-display uppercase tracking-imperial text-[0.7rem]
+      text-parchment-dark transition
+      hover:border-gold/60 hover:text-gold-bright
+      disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .input-imperial {
+    @apply w-full rounded-sm border border-gold/25 bg-imperial-shadow/60
+      px-3 py-2 text-parchment placeholder:text-parchment-deep/60
+      focus:border-gold focus:outline-none focus:ring-1 focus:ring-gold/40;
+  }
+
+  .label-imperial {
+    @apply block font-display uppercase tracking-imperial text-[0.7rem]
+      text-gold-dim mb-1.5;
+  }
+
+  .divider-laurel {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-gold/30 to-transparent my-6;
+  }
+}

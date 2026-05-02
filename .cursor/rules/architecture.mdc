@@ -1,0 +1,102 @@
+---
+description: Imperium architecture rules — read before editing any file.
+alwaysApply: true
+---
+
+# Imperium architecture rules
+
+These are non-negotiable. Every change must respect them.
+
+## Supabase clients
+
+Three clients exist and they are NOT interchangeable:
+
+- `lib/supabase/client.ts` — browser, anon key, RLS enforced. Use only
+  inside Client Components, and only for reads.
+- `lib/supabase/server.ts` — Server Components / Server Actions / Route
+  Handlers. Bound to the user's session cookie. RLS enforced as that user.
+- `lib/supabase/admin.ts` — service role. Bypasses RLS. Marked
+  `import "server-only"`. Allowed callers ONLY:
+    - Edge Functions in `supabase/functions/*`.
+    - Server Actions in `app/admin/*` (after a re-checked admin gate).
+
+Never import `lib/supabase/admin.ts` from a Client Component or from any
+shared module that Client Components transitively import. The
+`server-only` directive will blow up the build if you do.
+
+## Data mutations
+
+- Mutations go through Server Actions, never direct browser writes.
+- Money flows ONLY through `transfer_coins(...)` (Postgres RPC) which
+  atomically updates the balance and writes a `ledger_entries` row.
+- AP-spending actions check AP and apply the effect in a single SQL
+  statement (or a SECURITY DEFINER function). Never read AP, then write
+  back from JS — that's a TOCTOU bug.
+- Inventory mutations always UPSERT against the
+  `(character_id, item_type_id)` unique constraint:
+
+  ```sql
+  INSERT INTO inventory (character_id, item_type_id, quantity)
+  VALUES ($1, $2, $3)
+  ON CONFLICT (character_id, item_type_id)
+  DO UPDATE SET quantity = inventory.quantity + EXCLUDED.quantity;
+  ```
+
+## Append-only tables
+
+`game_events` is append-only. Triggers in the schema enforce this — any
+UPDATE or DELETE raises an exception. To "fix" a bad event, append a
+corrective row. Don't try to disable the trigger.
+
+## RLS
+
+RLS is enabled on every public table. Tables without explicit policies
+are effectively closed to the anon and authenticated roles. World data
+(nodes, cities, provinces, etc.) has explicit "FOR SELECT USING (true)"
+policies. Don't add tables without thinking through the policy.
+
+## Realtime
+
+Use Realtime ONLY for:
+- Clan chat
+- Notifications
+
+The map polls — never subscribe to `nodes` or `characters` over Realtime.
+
+## Polymorphic owner columns
+
+Where a column owner can be one of multiple types:
+
+- If all owner types share a column type (e.g. characters and clans both
+  use `uuid`), use a single column + `owner_type` discriminator.
+- If owner types have different column types (e.g. countries `int` vs
+  clans `uuid`), use SEPARATE FK columns guarded by a CHECK that enforces
+  exactly one is non-null. See `provinces.owner_country_id` /
+  `owner_clan_id`.
+
+Don't store FK values as text or untyped int. The schema reflects this.
+
+## Naming and aesthetic
+
+- All colors live in `app/globals.css` as CSS variables, stored as
+  space-separated RGB triples and aliased in `tailwind.config.ts` via
+  the `rgb(var(--color-X) / <alpha-value>)` pattern. From Tailwind use
+  the aliases (`text-gold`, `border-gold/20`). From raw CSS or inline
+  SVG attributes use `rgb(var(--color-gold))` — never hardcode hex.
+- Display fonts: Cinzel. Body: Lora. Serif: Cormorant Garamond. Don't
+  add sans-serif to the design.
+- Voice: Byzantine, restrained, occasionally archaic. Not "epic fantasy".
+
+## Sample components for reference
+
+- `components/ui/APBar.tsx` — AP bar pattern
+- `components/ui/CoinDisplay.tsx` — coin/gem pair
+- `components/character/StatsDisplay.tsx` — stat tile grid
+
+## When you must make a schema change
+
+1. Add a new file `supabase/migrations/00N_<description>.sql`.
+2. Update `lib/types/database.types.ts` (run `npm run db:types` if the
+   project is linked, otherwise hand-edit).
+3. Update `lib/types/game.types.ts` if any composed shape changed.
+4. Add or update RLS policies for the new tables.
