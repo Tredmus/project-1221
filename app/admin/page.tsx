@@ -68,6 +68,9 @@ export default async function AdminOverviewPage() {
           <Link href="/admin/seed" className="btn-imperial">
             Seed nodes &amp; connections
           </Link>
+          <Link href="/admin/map-editor" className="btn-imperial">
+            Province map editor
+          </Link>
           <Link href="/game/map" className="btn-ghost">
             View map
           </Link>

@@ -58,6 +58,26 @@ export function legacyToLonLat(map_x: number, map_y: number): [number, number] {
   return [lon, lat];
 }
 
+/**
+ * Inverse of {@link legacyToLonLat}: WGS84 → legacy parchment (map_x, map_y).
+ * Uses the same affine coefficients as the forward transform.
+ */
+export function lonLatToLegacy(lon: number, lat: number): [number, number] {
+  const a11 = ABC[0]!;
+  const a12 = ABC[1]!;
+  const a21 = DEF[0]!;
+  const a22 = DEF[1]!;
+  const b1 = lon - ABC[2]!;
+  const b2 = lat - DEF[2]!;
+  const det = a11 * a22 - a12 * a21;
+  if (Math.abs(det) < 1e-14) {
+    throw new Error("lonLatToLegacy: singular calibration");
+  }
+  const mx = (b1 * a22 - b2 * a12) / det;
+  const my = (a11 * b2 - a21 * b1) / det;
+  return [mx, my];
+}
+
 /** FeatureCollection of node positions in WGS84 — used only to fit the map projection. */
 export function mergedFitObject(
   nodeLonLat: [number, number][],

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { isAdminUserId } from "@/lib/game/admin";
+import { isAdminUser } from "@/lib/game/admin";
 
 // ----------------------------------------------------------------
 // Seed payload schema (no Zod yet — keep MVP dependencies thin)
@@ -106,7 +106,7 @@ export async function seedWorldAction(
   const {
     data: { user },
   } = await session.auth.getUser();
-  if (!user || !isAdminUserId(user.id)) {
+  if (!user || !(await isAdminUser(session, user.id))) {
     return { error: "Forbidden.", summary: null };
   }
 

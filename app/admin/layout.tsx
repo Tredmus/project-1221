@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createServerSupabase } from "@/lib/supabase/server";
-import { isAdminUserId } from "@/lib/game/admin";
+import { isAdminUser } from "@/lib/game/admin";
 
 /**
- * Admin layout — gates access to anyone listed in IMPERIUM_ADMIN_USER_IDS.
+ * Admin layout — gates access when `public.users.role = 'admin'` or the
+ * user id is listed in IMPERIUM_ADMIN_USER_IDS (optional bootstrap).
  *
  * This is the ONLY place in the codebase outside Edge Functions that
  * should be allowed to import `lib/supabase/admin.ts`. The Server Actions
@@ -22,7 +23,7 @@ export default async function AdminLayout({
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/auth/login?next=/admin");
-  if (!isAdminUserId(user.id)) redirect("/game");
+  if (!(await isAdminUser(supabase, user.id))) redirect("/game");
 
   return (
     <div className="page-root mx-auto max-w-6xl px-6 py-10">
@@ -42,6 +43,12 @@ export default async function AdminLayout({
             className="text-gold hover:text-gold-bright"
           >
             Seed world
+          </Link>
+          <Link
+            href="/admin/map-editor"
+            className="text-gold hover:text-gold-bright"
+          >
+            Map editor
           </Link>
           <Link href="/game" className="text-parchment-deep hover:text-gold">
             Back to game

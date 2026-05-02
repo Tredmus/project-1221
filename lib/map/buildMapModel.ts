@@ -1,6 +1,10 @@
 import { type GeoProjection, geoMercator } from "d3-geo";
 import { polygonHull } from "d3-polygon";
-import { legacyToLonLat, mergedFitObject } from "./legacyGeography";
+import {
+  legacyToLonLat,
+  lonLatToLegacy,
+  mergedFitObject,
+} from "./legacyGeography";
 import type { MapNodeView } from "@/lib/types/game.types";
 
 const PADDING = 16;
@@ -48,6 +52,19 @@ export function projectNode(
   n: MapNodeView,
 ): [number, number] {
   return projectLegacyXY(projection, n.map_x, n.map_y);
+}
+
+/** Inverse of {@link projectLegacyXY}: SVG map pixel coords → legacy parchment. */
+export function projectedXYToLegacy(
+  projection: GeoProjection,
+  px: number,
+  py: number,
+): [number, number] | null {
+  const inv = projection.invert?.([px, py]);
+  if (!inv) return null;
+  const [lon, lat] = inv;
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  return lonLatToLegacy(lon, lat);
 }
 
 /** Project a closed legacy-space ring to an SVG path `d` string. */
