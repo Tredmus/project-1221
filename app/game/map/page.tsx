@@ -1,6 +1,7 @@
 import { getCurrentCharacter } from "@/lib/game/getCurrentCharacter";
 import { createServerSupabase } from "@/lib/supabase/server";
 import GameMap, { type CharacterPresence } from "@/components/map/GameMap";
+import { parseProvincePolygon } from "@/lib/map/parseProvincePolygon";
 import type { MapConnectionView, MapNodeView, NodeType } from "@/lib/types/game.types";
 
 export const metadata = {
@@ -20,6 +21,8 @@ export default async function MapPage() {
     { data: rawNodes },
     { data: rawConns },
     { data: rawChars },
+    { data: rawProvinces },
+    { data: rawCities },
   ] = await Promise.all([
     supabase
       .from("nodes")
@@ -33,6 +36,8 @@ export default async function MapPage() {
       .from("characters")
       .select("id, name, node_id")
       .not("node_id", "is", null),
+    supabase.from("provinces").select("id, name, map_x, map_y, map_polygon"),
+    supabase.from("cities").select("id, node_id"),
   ]);
 
   const nodes: MapNodeView[] = (rawNodes ?? []).map((n) => ({
@@ -58,6 +63,20 @@ export default async function MapPage() {
     name: c.name,
     node_id: c.node_id as number | null,
   }));
+
+  const provinces = (rawProvinces ?? []).map((p) => ({
+    id: p.id as number,
+    name: p.name as string,
+    map_x: p.map_x != null && p.map_x !== "" ? Number(p.map_x) : null,
+    map_y: p.map_y != null && p.map_y !== "" ? Number(p.map_y) : null,
+    map_polygon: parseProvincePolygon(p.map_polygon),
+  }));
+
+  const cityLinks =
+    (rawCities ?? []).map((c) => ({
+      cityId: c.id as number,
+      nodeId: c.node_id as number,
+    })) ?? [];
 
   const isEmpty = nodes.length === 0;
 
@@ -87,6 +106,8 @@ export default async function MapPage() {
         characterAP={character.action_points}
         characterTravelTier={character.travel_tier}
         otherCharacters={otherCharacters}
+        provinces={provinces}
+        cityLinks={cityLinks}
       />
     </div>
   );

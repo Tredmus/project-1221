@@ -2419,3 +2419,103 @@ $$;
 REVOKE ALL ON FUNCTION public.list_starting_cities() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_starting_cities() TO anon, authenticated;
 
+-- ================================================================
+-- Imperium — Migration 011: region Lower Danube + province Moesia
+-- ================================================================
+-- Moesia (classical Lower Moesia / land along the Haemus): the Danube to the
+-- north, the Balkan mountains to the south and west, the Black Sea to the east.
+
+INSERT INTO regions (name)
+SELECT 'Lower Danube'
+WHERE NOT EXISTS (SELECT 1 FROM regions WHERE name = 'Lower Danube');
+
+INSERT INTO provinces (name, region_id, owner_type)
+SELECT 'Moesia', r.id, 'independent'
+FROM regions r
+WHERE r.name = 'Lower Danube'
+  AND NOT EXISTS (SELECT 1 FROM provinces WHERE name = 'Moesia')
+LIMIT 1;
+
+-- ================================================================
+-- Imperium — Migration 012: province map anchors (legacy parchment coordinates)
+-- ================================================================
+
+ALTER TABLE public.provinces
+  ADD COLUMN IF NOT EXISTS map_x numeric,
+  ADD COLUMN IF NOT EXISTS map_y numeric;
+
+COMMENT ON COLUMN public.provinces.map_x IS 'Parchment map X (same space as nodes.map_x)';
+COMMENT ON COLUMN public.provinces.map_y IS 'Parchment map Y (same space as nodes.map_y)';
+
+UPDATE public.provinces
+SET map_x = 620, map_y = 400
+WHERE name = 'Eastern Thrace';
+
+UPDATE public.provinces
+SET map_x = 460, map_y = 440
+WHERE name = 'Central Macedonia';
+
+UPDATE public.provinces
+SET map_x = 375, map_y = 455
+WHERE name = 'Western Macedonia';
+
+UPDATE public.provinces
+SET map_x = 540, map_y = 305
+WHERE name = 'Moesia';
+
+-- ================================================================
+-- Imperium — Migration 013: province polygons (legacy parchment coordinates)
+-- ================================================================
+
+ALTER TABLE public.provinces
+  ADD COLUMN IF NOT EXISTS map_polygon jsonb;
+
+COMMENT ON COLUMN public.provinces.map_polygon IS
+  'Closed polygon in legacy map space: [[x,y],[x,y],...] same units as nodes.map_x/y';
+
+UPDATE public.provinces
+SET map_polygon = '[
+  [535, 358],
+  [618, 362],
+  [698, 392],
+  [708, 438],
+  [665, 468],
+  [575, 458],
+  [528, 412],
+  [535, 358]
+]'::jsonb
+WHERE name = 'Eastern Thrace';
+
+UPDATE public.provinces
+SET map_polygon = '[
+  [425, 408],
+  [498, 402],
+  [512, 472],
+  [442, 482],
+  [408, 448],
+  [425, 408]
+]'::jsonb
+WHERE name = 'Central Macedonia';
+
+UPDATE public.provinces
+SET map_polygon = '[
+  [305, 418],
+  [392, 408],
+  [405, 478],
+  [322, 488],
+  [288, 452],
+  [305, 418]
+]'::jsonb
+WHERE name = 'Western Macedonia';
+
+UPDATE public.provinces
+SET map_polygon = '[
+  [455, 275],
+  [578, 282],
+  [585, 338],
+  [515, 348],
+  [468, 318],
+  [455, 275]
+]'::jsonb
+WHERE name = 'Moesia';
+

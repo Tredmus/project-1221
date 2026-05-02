@@ -28,6 +28,8 @@ const config: Config = {
     extend: {
       colors: {
         ink: withAlpha("--color-ink"),
+        surface: withAlpha("--color-surface"),
+        "map-canvas": withAlpha("--color-map-canvas"),
         parchment: {
           DEFAULT: withAlpha("--color-parchment"),
           dark: withAlpha("--color-parchment-dark"),

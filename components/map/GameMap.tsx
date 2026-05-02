@@ -1,9 +1,18 @@
 "use client";
 
-import { useActionState, useMemo, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { zoom, zoomIdentity, type ZoomBehavior } from "d3-zoom";
+import { select } from "d3-selection";
 import { dijkstra, pathEdgeSet } from "@/lib/game/pathfinding";
 import { travelAction, TRAVEL_INITIAL_STATE } from "@/app/actions/travel";
+import {
+  buildMapModel,
+  type ProvinceMapInput,
+  projectLegacyXY,
+  projectNode,
+} from "@/lib/map/buildMapModel";
 import type { MapNodeView, MapConnectionView } from "@/lib/types/game.types";
 
 export interface CharacterPresence {
@@ -12,19 +21,33 @@ export interface CharacterPresence {
   node_id: number | null;
 }
 
+export interface ProvinceOption {
+  id: number;
+  name: string;
+  /** Parchment coordinates; same space as `nodes.map_x` / `map_y`. */
+  map_x: number | null;
+  map_y: number | null;
+  /** Optional closed polygon for the province border (legacy x,y vertices). */
+  map_polygon: [number, number][] | null;
+}
+
+export interface CityNodeLink {
+  cityId: number;
+  nodeId: number;
+}
+
 interface Props {
   nodes: MapNodeView[];
   connections: MapConnectionView[];
-  /** The node where the player's character currently stands. */
   currentNodeId: number | null;
-  /** The player's character id — excluded from the "who else is here" list. */
   characterId: string;
-  /** Current action points — used for disabling the Travel button. */
   characterAP: number;
-  /** Controls which road tiers are accessible. */
   characterTravelTier: number;
-  /** All other characters on the map and their node locations. */
   otherCharacters: CharacterPresence[];
+  /** Game provinces (for labels and the hull click layer). */
+  provinces: ProvinceOption[];
+  /** city id keyed by node id for /game/city/[id] links. */
+  cityLinks: CityNodeLink[];
 }
 
 const VIEW_W = 1000;
@@ -42,23 +65,23 @@ const ROAD_STROKE_ACTIVE: Record<MapConnectionView["road_type"], string> = {
 };
 
 const NODE_FILL: Record<MapNodeView["type"], string> = {
-  city:       "rgb(var(--color-gold))",
-  fortress:   "rgb(var(--color-blood))",
-  port:       "rgb(var(--color-verdigris))",
+  city: "rgb(var(--color-gold))",
+  fortress: "rgb(var(--color-blood))",
+  port: "rgb(var(--color-verdigris))",
   settlement: "rgb(var(--color-parchment-dark))",
-  farm:       "rgb(var(--color-parchment-deep))",
-  mine:       "rgb(var(--color-ash))",
-  road:       "rgb(var(--color-gold-dim))",
+  farm: "rgb(var(--color-parchment-deep))",
+  mine: "rgb(var(--color-ash))",
+  road: "rgb(var(--color-gold-dim))",
 };
 
 const NODE_RADIUS: Record<MapNodeView["type"], number> = {
-  city:       11,
-  fortress:   9,
-  port:       8,
+  city: 11,
+  fortress: 9,
+  port: 8,
   settlement: 7,
-  farm:       5,
-  mine:       5,
-  road:       3,
+  farm: 5,
+  mine: 5,
+  road: 3,
 };
 
 function initials(name: string) {
@@ -77,6 +100,8 @@ export default function GameMap({
   characterAP,
   characterTravelTier,
   otherCharacters,
+  provinces,
+  cityLinks,
 }: Props) {
   const router = useRouter();
   const [travelState, formAction, isTraveling] = useActionState(
@@ -84,8 +109,9 @@ export default function GameMap({
     TRAVEL_INITIAL_STATE,
   );
 
-  // When travel succeeds, refresh the page so the server component re-fetches
-  // the character's new position and the AP bar.
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const zoomLayerRef = useRef<SVGGElement | null>(null);
+
   const prevApRemaining = useRef<number | null>(null);
   useEffect(() => {
     if (
@@ -102,7 +128,17 @@ export default function GameMap({
     [nodes],
   );
 
-  // Group other characters by node for the presence indicators.
+  const provincesById = useMemo(
+    () => new Map(provinces.map((p) => [p.id, p.name] as const)),
+    [provinces],
+  );
+
+  const cityIdByNodeId = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const c of cityLinks) m.set(c.nodeId, c.cityId);
+    return m;
+  }, [cityLinks]);
+
   const charsByNode = useMemo(() => {
     const m = new Map<number, CharacterPresence[]>();
     for (const ch of otherCharacters) {
@@ -113,21 +149,80 @@ export default function GameMap({
     return m;
   }, [otherCharacters, characterId]);
 
+  const provinceMapInputs = useMemo((): ProvinceMapInput[] => {
+    return provinces
+      .filter(
+        (p) =>
+          p.map_x != null &&
+          p.map_y != null &&
+          Number.isFinite(p.map_x) &&
+          Number.isFinite(p.map_y),
+      )
+      .map((p) => ({
+        id: p.id,
+        map_x: p.map_x!,
+        map_y: p.map_y!,
+        map_polygon: p.map_polygon,
+      }));
+  }, [provinces]);
+
+  const mapModel = useMemo(
+    () => buildMapModel(VIEW_W, VIEW_H, nodes, provinceMapInputs),
+    [nodes, provinceMapInputs],
+  );
+
+  const zoomBehav = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  useEffect(() => {
+    const svgEl = svgRef.current;
+    const layerEl = zoomLayerRef.current;
+    if (!svgEl || !layerEl) return;
+
+    const svg = select(svgEl);
+    const layer = select(layerEl);
+
+    const z = zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.55, 14])
+      .on("zoom", (event) => {
+        layer.attr("transform", event.transform.toString());
+      });
+
+    zoomBehav.current = z;
+    svg.call(z);
+    svg.on("dblclick.zoom", null);
+
+    return () => {
+      svg.on(".zoom", null);
+      zoomBehav.current = null;
+    };
+  }, [nodes, provinceMapInputs]);
+
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
 
-  const selected = selectedId !== null ? nodesById.get(selectedId) ?? null : null;
-  const current  = currentNodeId !== null ? nodesById.get(currentNodeId) ?? null : null;
+  const selected =
+    selectedId !== null ? nodesById.get(selectedId) ?? null : null;
+  const current =
+    currentNodeId !== null ? nodesById.get(currentNodeId) ?? null : null;
 
-  // Client-side pathfinding. Recomputes whenever the selection changes.
   const pathResult = useMemo(() => {
-    if (currentNodeId === null || selectedId === null || selectedId === currentNodeId) {
+    if (
+      currentNodeId === null ||
+      selectedId === null ||
+      selectedId === currentNodeId
+    ) {
       return null;
     }
-    return dijkstra(connections, currentNodeId, selectedId, characterTravelTier);
+    return dijkstra(
+      connections,
+      currentNodeId,
+      selectedId,
+      characterTravelTier,
+    );
   }, [selectedId, currentNodeId, connections, characterTravelTier]);
 
   const highlightedEdges = useMemo(
-    () => (pathResult?.path ? pathEdgeSet(pathResult.path) : new Set<string>()),
+    () =>
+      pathResult?.path ? pathEdgeSet(pathResult.path) : new Set<string>(),
     [pathResult],
   );
   const highlightedNodes = useMemo(
@@ -138,19 +233,33 @@ export default function GameMap({
   const canAffordTravel =
     pathResult?.reachable && characterAP >= pathResult.totalCost;
 
-  // Characters at the selected node (for the panel, excluding self).
   const atSelectedNode =
     selectedId !== null ? (charsByNode.get(selectedId) ?? []) : [];
 
+  function resetZoom() {
+    const svgEl = svgRef.current;
+    if (!svgEl || !zoomBehav.current) return;
+    select(svgEl).transition().duration(200).call(zoomBehav.current.transform, zoomIdentity);
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-      {/* ── MAP ──────────────────────────────────────────────── */}
       <div className="panel overflow-hidden">
-        <h2 className="panel-heading">Map of the realm</h2>
+        <div className="panel-heading flex flex-wrap items-center justify-between gap-2">
+          <span>Map of the realm</span>
+          <button
+            type="button"
+            onClick={resetZoom}
+            className="btn-ghost text-[0.65rem] py-1 px-2"
+          >
+            Reset view
+          </button>
+        </div>
         <div className="panel-body p-0">
           <svg
+            ref={svgRef}
             viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-            className="h-full min-h-[420px] w-full bg-imperial-shadow"
+            className="h-full min-h-[420px] w-full touch-none bg-map-canvas"
             role="img"
             aria-label="Map of the empire"
           >
@@ -164,7 +273,7 @@ export default function GameMap({
                 <path
                   d="M 40 0 L 0 0 0 40"
                   fill="none"
-                  stroke="rgba(201, 164, 76, 0.05)"
+                  stroke="rgba(201, 164, 76, 0.12)"
                   strokeWidth="1"
                 />
               </pattern>
@@ -188,199 +297,313 @@ export default function GameMap({
               </filter>
             </defs>
 
-            <rect width={VIEW_W} height={VIEW_H} fill="url(#parchment-grid)" />
+            <rect
+              width={VIEW_W}
+              height={VIEW_H}
+              fill="url(#parchment-grid)"
+              className="pointer-events-none"
+            />
 
-            {/* ── Connections (base layer) ── */}
-            <g>
-              {connections.map((c) => {
-                const a = nodesById.get(c.node_a_id);
-                const b = nodesById.get(c.node_b_id);
-                if (!a || !b) return null;
-                const edgeKey = `${Math.min(c.node_a_id, c.node_b_id)}-${Math.max(c.node_a_id, c.node_b_id)}`;
-                const isOnPath = highlightedEdges.has(edgeKey);
-                return (
-                  <line
-                    key={edgeKey}
-                    x1={a.map_x}
-                    y1={a.map_y}
-                    x2={b.map_x}
-                    y2={b.map_y}
-                    stroke={
-                      isOnPath
-                        ? ROAD_STROKE_ACTIVE[c.road_type]
-                        : ROAD_STROKE[c.road_type]
-                    }
-                    strokeWidth={isOnPath ? 2.5 : c.road_type === "road" ? 1.5 : 2}
-                    strokeDasharray={c.road_type === "sea" ? "4 4" : undefined}
-                  />
-                );
-              })}
-            </g>
-
-            {/* ── Glow under current node ── */}
-            {current ? (
-              <circle
-                cx={current.map_x}
-                cy={current.map_y}
-                r={44}
-                fill="url(#glow-current)"
-              />
-            ) : null}
-
-            {/* ── Glow under path nodes ── */}
-            {pathResult?.reachable
-              ? pathResult.path.map((nid) => {
-                  const n = nodesById.get(nid);
-                  if (!n || nid === currentNodeId) return null;
-                  return (
-                    <circle
-                      key={`glow-${nid}`}
-                      cx={n.map_x}
-                      cy={n.map_y}
-                      r={28}
-                      fill="url(#glow-path)"
-                    />
-                  );
-                })
-              : null}
-
-            {/* ── Nodes ── */}
-            <g>
-              {nodes.map((n) => {
-                const isCurrent  = currentNodeId === n.id;
-                const isSelected = selectedId === n.id;
-                const isOnPath   = highlightedNodes.has(n.id);
-                const r          = NODE_RADIUS[n.type];
-
-                return (
-                  <g
-                    key={n.id}
-                    transform={`translate(${n.map_x}, ${n.map_y})`}
+            <g ref={zoomLayerRef}>
+              <g
+                className="province-hit pointer-events-auto"
+                style={{ isolation: "isolate" }}
+              >
+                {mapModel.provinceHulls.map((ph) => (
+                  <path
+                    key={ph.provinceId}
+                    d={ph.d}
+                    fill="rgba(201, 164, 76, 0.14)"
+                    stroke="rgba(233, 200, 122, 0.55)"
+                    strokeWidth={1.35}
+                    strokeDasharray="5 4"
                     style={{ cursor: "pointer" }}
-                    onClick={() => setSelectedId(n.id)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={n.name ?? `Node ${n.id}`}
-                    onKeyDown={(e) => e.key === "Enter" && setSelectedId(n.id)}
-                  >
-                    {/* Selection ring */}
-                    {isSelected ? (
-                      <circle
-                        r={r + 7}
-                        fill="none"
-                        stroke="rgb(var(--color-gold-bright))"
-                        strokeWidth={1.5}
-                        strokeDasharray="3 3"
-                        filter="url(#glow-filter)"
-                      />
-                    ) : null}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedProvinceId(ph.provinceId);
+                    }}
+                  />
+                ))}
+              </g>
 
-                    {/* Path highlight ring */}
-                    {isOnPath && !isCurrent && !isSelected ? (
-                      <circle
-                        r={r + 4}
-                        fill="none"
-                        stroke="rgba(233, 200, 122, 0.5)"
-                        strokeWidth={1}
-                      />
-                    ) : null}
-
-                    {/* Node circle */}
-                    <circle
-                      r={r}
-                      fill={NODE_FILL[n.type]}
-                      stroke={
-                        isCurrent
-                          ? "rgb(var(--color-gold-bright))"
-                          : isOnPath
-                          ? "rgba(233, 200, 122, 0.7)"
-                          : "rgba(22, 17, 11, 0.6)"
-                      }
-                      strokeWidth={isCurrent ? 2.5 : isOnPath ? 1.5 : 1}
-                    />
-
-                    {/* City / fortress label */}
-                    {(n.type === "city" || n.type === "fortress") && n.name ? (
+              <g className="province-labels pointer-events-none" aria-hidden>
+                {provinces
+                  .filter(
+                    (p) =>
+                      p.map_x != null &&
+                      p.map_y != null &&
+                      Number.isFinite(p.map_x) &&
+                      Number.isFinite(p.map_y),
+                  )
+                  .map((p) => {
+                    const [lx, ly] = projectLegacyXY(
+                      mapModel.projection,
+                      p.map_x!,
+                      p.map_y!,
+                    );
+                    return (
                       <text
-                        x={0}
-                        y={r + 14}
+                        key={`pl-${p.id}`}
+                        x={lx}
+                        y={ly - 18}
                         textAnchor="middle"
-                        fill="rgb(var(--color-parchment))"
+                        fill="rgb(var(--color-gold))"
                         style={{
                           fontFamily: "var(--font-display)",
-                          fontSize: 11,
-                          letterSpacing: "0.1em",
+                          fontSize: 10,
+                          letterSpacing: "0.12em",
                           textTransform: "uppercase",
                           paintOrder: "stroke",
-                          stroke: "rgba(7, 5, 10, 0.9)",
+                          stroke: "rgba(18, 14, 12, 0.92)",
                           strokeWidth: 3,
-                          pointerEvents: "none",
                         }}
                       >
-                        {n.name}
+                        {p.name}
                       </text>
-                    ) : null}
-                  </g>
-                );
-              })}
-            </g>
-
-            {/* ── Character presence dots ── */}
-            <g>
-              {Array.from(charsByNode.entries()).map(([nodeId, chars]) => {
-                const n = nodesById.get(nodeId);
-                if (!n) return null;
-                const r = NODE_RADIUS[n.type];
-                const count = chars.length;
-
-                return (
-                  <g
-                    key={`chars-${nodeId}`}
-                    transform={`translate(${n.map_x + r + 5}, ${n.map_y - r - 2})`}
-                    pointerEvents="none"
-                  >
-                    <circle
-                      r={7}
-                      fill="rgb(var(--color-imperial))"
-                      stroke="rgb(var(--color-gold-dim))"
-                      strokeWidth={0.8}
-                    />
-                    <text
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fill="rgb(var(--color-gold-bright))"
-                      style={{ fontSize: 7, fontFamily: "var(--font-display)" }}
-                    >
-                      {count > 9 ? "9+" : count}
-                    </text>
-                  </g>
-                );
-              })}
-            </g>
-
-            {/* ── Self marker (current character) ── */}
-            {current ? (
-              <g
-                transform={`translate(${current.map_x}, ${current.map_y})`}
-                pointerEvents="none"
-              >
-                <circle
-                  r={4}
-                  cy={-(NODE_RADIUS[current.type] + 6)}
-                  fill="rgb(var(--color-gold-bright))"
-                  stroke="rgb(var(--color-imperial-deep))"
-                  strokeWidth={1}
-                />
+                    );
+                  })}
               </g>
-            ) : null}
+
+              <g className="connections">
+                {connections.map((c) => {
+                  const a = nodesById.get(c.node_a_id);
+                  const b = nodesById.get(c.node_b_id);
+                  if (!a || !b) return null;
+                  const [x1, y1] = projectNode(mapModel.projection, a);
+                  const [x2, y2] = projectNode(mapModel.projection, b);
+                  const edgeKey = `${Math.min(c.node_a_id, c.node_b_id)}-${Math.max(c.node_a_id, c.node_b_id)}`;
+                  const isOnPath = highlightedEdges.has(edgeKey);
+                  return (
+                    <line
+                      key={edgeKey}
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke={
+                        isOnPath
+                          ? ROAD_STROKE_ACTIVE[c.road_type]
+                          : ROAD_STROKE[c.road_type]
+                      }
+                      strokeWidth={
+                        isOnPath ? 2.5 : c.road_type === "road" ? 1.5 : 2
+                      }
+                      strokeDasharray={
+                        c.road_type === "sea" ? "4 4" : undefined
+                      }
+                      className="pointer-events-none"
+                    />
+                  );
+                })}
+              </g>
+
+              {current ? (
+                <circle
+                  cx={projectNode(mapModel.projection, current)[0]}
+                  cy={projectNode(mapModel.projection, current)[1]}
+                  r={44}
+                  fill="url(#glow-current)"
+                  className="pointer-events-none"
+                />
+              ) : null}
+
+              {pathResult?.reachable
+                ? pathResult.path.map((nid) => {
+                    const n = nodesById.get(nid);
+                    if (!n || nid === currentNodeId) return null;
+                    const [px, py] = projectNode(mapModel.projection, n);
+                    return (
+                      <circle
+                        key={`glow-${nid}`}
+                        cx={px}
+                        cy={py}
+                        r={28}
+                        fill="url(#glow-path)"
+                        className="pointer-events-none"
+                      />
+                    );
+                  })
+                : null}
+
+              <g className="nodes">
+                {nodes.map((n) => {
+                  const [mx, my] = projectNode(mapModel.projection, n);
+                  const isCurrent = currentNodeId === n.id;
+                  const isSelected = selectedId === n.id;
+                  const isOnPath = highlightedNodes.has(n.id);
+                  const r = NODE_RADIUS[n.type];
+
+                  return (
+                    <g
+                      key={n.id}
+                      transform={`translate(${mx}, ${my})`}
+                      style={{ cursor: "pointer" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedId(n.id);
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={n.name ?? `Node ${n.id}`}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && setSelectedId(n.id)
+                      }
+                    >
+                      {isSelected ? (
+                        <circle
+                          r={r + 7}
+                          fill="none"
+                          stroke="rgb(var(--color-gold-bright))"
+                          strokeWidth={1.5}
+                          strokeDasharray="3 3"
+                          filter="url(#glow-filter)"
+                        />
+                      ) : null}
+
+                      {isOnPath && !isCurrent && !isSelected ? (
+                        <circle
+                          r={r + 4}
+                          fill="none"
+                          stroke="rgba(233, 200, 122, 0.5)"
+                          strokeWidth={1}
+                        />
+                      ) : null}
+
+                      <circle
+                        r={r}
+                        fill={NODE_FILL[n.type]}
+                        stroke={
+                          isCurrent
+                            ? "rgb(var(--color-gold-bright))"
+                            : isOnPath
+                              ? "rgba(233, 200, 122, 0.7)"
+                              : "rgba(22, 17, 11, 0.6)"
+                        }
+                        strokeWidth={isCurrent ? 2.5 : isOnPath ? 1.5 : 1}
+                      />
+
+                      {(n.type === "city" || n.type === "fortress") &&
+                      n.name ? (
+                        <text
+                          x={0}
+                          y={r + 14}
+                          textAnchor="middle"
+                          fill="rgb(var(--color-parchment))"
+                          style={{
+                            fontFamily: "var(--font-display)",
+                            fontSize: 11,
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            paintOrder: "stroke",
+                            stroke: "rgba(7, 5, 10, 0.9)",
+                            strokeWidth: 3,
+                            pointerEvents: "none",
+                          }}
+                        >
+                          {n.name}
+                        </text>
+                      ) : null}
+                    </g>
+                  );
+                })}
+              </g>
+
+              <g className="presence pointer-events-none">
+                {Array.from(charsByNode.entries()).map(([nodeId, chars]) => {
+                  const n = nodesById.get(nodeId);
+                  if (!n) return null;
+                  const [px, py] = projectNode(mapModel.projection, n);
+                  const r = NODE_RADIUS[n.type];
+                  const count = chars.length;
+
+                  return (
+                    <g
+                      key={`chars-${nodeId}`}
+                      transform={`translate(${px + r + 5}, ${py - r - 2})`}
+                    >
+                      <circle
+                        r={7}
+                        fill="rgb(var(--color-imperial))"
+                        stroke="rgb(var(--color-gold-dim))"
+                        strokeWidth={0.8}
+                      />
+                      <text
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fill="rgb(var(--color-gold-bright))"
+                        style={{
+                          fontSize: 7,
+                          fontFamily: "var(--font-display)",
+                        }}
+                      >
+                        {count > 9 ? "9+" : count}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+
+              {current ? (
+                <g
+                  transform={`translate(${projectNode(mapModel.projection, current)[0]}, ${projectNode(mapModel.projection, current)[1]})`}
+                  pointerEvents="none"
+                >
+                  <circle
+                    r={4}
+                    cy={-(NODE_RADIUS[current.type] + 6)}
+                    fill="rgb(var(--color-gold-bright))"
+                    stroke="rgb(var(--color-imperial-deep))"
+                    strokeWidth={1}
+                  />
+                </g>
+              ) : null}
+            </g>
           </svg>
+          <p className="border-t border-gold/10 px-4 py-2 font-serif text-[0.65rem] text-parchment-deep/80">
+            Drag to pan, scroll to zoom. Province outlines follow nodes on your
+            road network.
+          </p>
         </div>
       </div>
 
-      {/* ── SIDE PANELS ──────────────────────────────────────── */}
       <aside className="space-y-4">
+        {selectedProvinceId !== null ? (
+          <section className="panel">
+            <h2 className="panel-heading">Province</h2>
+            <div className="panel-body space-y-3">
+              <div className="font-display text-lg text-gold-bright leading-tight">
+                {provincesById.get(selectedProvinceId) ?? "Province"}
+              </div>
+              <div>
+                <div className="label-imperial mb-1">Roads & settlements</div>
+                <ul className="space-y-1">
+                  {nodes
+                    .filter((n) => n.province_id === selectedProvinceId)
+                    .map((n) => (
+                      <li key={n.id}>
+                        <button
+                          type="button"
+                          className="font-serif text-sm text-gold/90 hover:text-gold-bright underline-offset-2 hover:underline"
+                          onClick={() => setSelectedId(n.id)}
+                        >
+                          {n.name ?? `Node ${n.id}`}
+                        </button>
+                        {n.type === "city" && cityIdByNodeId.has(n.id) ? (
+                          <Link
+                            href={`/game/city/${cityIdByNodeId.get(n.id)}`}
+                            className="ml-2 font-display text-[0.6rem] text-gold-dim hover:text-gold"
+                          >
+                            Open city
+                          </Link>
+                        ) : null}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
-        {/* Selection info */}
         <section className="panel">
           <h2 className="panel-heading">Selection</h2>
           <div className="panel-body">
@@ -401,7 +624,10 @@ export default function GameMap({
                     <div className="label-imperial mb-1">Present</div>
                     <ul className="space-y-1">
                       {atSelectedNode.map((ch) => (
-                        <li key={ch.id} className="font-serif text-sm text-parchment-dark flex items-baseline gap-2">
+                        <li
+                          key={ch.id}
+                          className="font-serif text-sm text-parchment-dark flex items-baseline gap-2"
+                        >
                           <span className="inline-block w-5 h-5 rounded-full bg-imperial border border-gold/30 text-center leading-5 font-display text-[0.6rem] text-gold shrink-0">
                             {initials(ch.name)}
                           </span>
@@ -422,20 +648,23 @@ export default function GameMap({
                   </p>
                 ) : null}
 
-                <div className="text-xs text-parchment-deep/50 font-mono">
-                  {Math.round(selected.map_x)}, {Math.round(selected.map_y)}
+                <div className="text-xs text-parchment-deep/50 font-mono tabular-nums">
+                  {selected.province_id !== null
+                    ? provincesById.get(selected.province_id) ?? "—"
+                    : "—"}
                 </div>
               </div>
             ) : (
               <p className="font-serif italic text-parchment-deep text-sm">
-                Click a node on the map to inspect it.
+                Click a province band or a node. Scroll to zoom the parchment.
               </p>
             )}
           </div>
         </section>
 
-        {/* Travel panel — only when a remote node is selected */}
-        {selected && currentNodeId !== null && selected.id !== currentNodeId ? (
+        {selected &&
+        currentNodeId !== null &&
+        selected.id !== currentNodeId ? (
           <section className="panel">
             <h2 className="panel-heading">Travel</h2>
             <div className="panel-body space-y-3">
@@ -481,7 +710,6 @@ export default function GameMap({
                     </p>
                   ) : null}
 
-                  {/* Route breadcrumb */}
                   <div>
                     <div className="label-imperial mb-1">Route</div>
                     <ol className="text-xs text-parchment-dark font-serif space-y-0.5">
@@ -497,8 +725,8 @@ export default function GameMap({
                                 nid === currentNodeId
                                   ? "text-gold-bright"
                                   : nid === selectedId
-                                  ? "text-gold-bright"
-                                  : ""
+                                    ? "text-gold-bright"
+                                    : ""
                               }
                             >
                               {nd?.name ?? `Node ${nid}`}
@@ -516,13 +744,19 @@ export default function GameMap({
                   ) : null}
 
                   <form action={formAction}>
-                    <input type="hidden" name="target_node_id" value={selected.id} />
+                    <input
+                      type="hidden"
+                      name="target_node_id"
+                      value={selected.id}
+                    />
                     <button
                       type="submit"
                       disabled={!canAffordTravel || isTraveling}
                       className="btn-imperial w-full"
                     >
-                      {isTraveling ? "On the road…" : `Travel (${pathResult.totalCost} AP)`}
+                      {isTraveling
+                        ? "On the road…"
+                        : `Travel (${pathResult.totalCost} AP)`}
                     </button>
                   </form>
                 </>
@@ -531,19 +765,18 @@ export default function GameMap({
           </section>
         ) : null}
 
-        {/* Legend */}
         <section className="panel">
           <h2 className="panel-heading">Legend</h2>
           <div className="panel-body grid grid-cols-2 gap-2 text-xs font-serif">
             {(
               [
-                ["city",       "City"],
-                ["fortress",   "Fortress"],
-                ["port",       "Port"],
+                ["city", "City"],
+                ["fortress", "Fortress"],
+                ["port", "Port"],
                 ["settlement", "Settlement"],
-                ["farm",       "Farm"],
-                ["mine",       "Mine"],
-                ["road",       "Waypoint"],
+                ["farm", "Farm"],
+                ["mine", "Mine"],
+                ["road", "Waypoint"],
               ] as const
             ).map(([type, label]) => (
               <div key={type} className="flex items-center gap-2">
@@ -571,4 +804,3 @@ export default function GameMap({
     </div>
   );
 }
-

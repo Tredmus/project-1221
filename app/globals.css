@@ -12,11 +12,15 @@
    ================================================================ */
 
 :root {
-  /* Ink and parchment */
-  --color-ink: 22 17 11;
-  --color-parchment: 243 231 200;
-  --color-parchment-dark: 216 198 154;
-  --color-parchment-deep: 184 156 102;
+  /* Ink and parchment — lifted slightly for legibility on long sessions */
+  --color-ink: 32 26 22;
+  --color-parchment: 248 240 228;
+  --color-parchment-dark: 228 210 175;
+  --color-parchment-deep: 196 172 128;
+
+  /* Raised surfaces (panels, map canvas) */
+  --color-surface: 44 36 30;
+  --color-map-canvas: 40 33 28;
 
   /* Imperial purples and crimsons */
   --color-imperial: 92 26 43;
@@ -31,12 +35,17 @@
   /* Accents */
   --color-verdigris: 74 107 90;
   --color-bone: 235 226 203;
-  --color-ash: 42 37 32;
+  --color-ash: 52 46 40;
   --color-blood: 110 31 31;
 
-  /* Surface gradients (concrete hex/rgb — not Tailwind-aware) */
-  --bg-parchment: radial-gradient(ellipse at 30% 20%, #1a1410 0%, #100b08 60%, #07050a 100%);
-  --bg-vellum: linear-gradient(180deg, #1c1611 0%, #0f0c08 100%);
+  /* Surface gradients — warmer mid-tones, less crushed black */
+  --bg-parchment: radial-gradient(
+    ellipse at 30% 18%,
+    rgb(52 42 34) 0%,
+    rgb(34 28 24) 52%,
+    rgb(22 18 15) 100%
+  );
+  --bg-vellum: linear-gradient(180deg, rgb(44 36 30) 0%, rgb(26 22 18) 100%);
 
   /* Typography */
   --font-display: "Cinzel", Georgia, serif;
@@ -63,7 +72,7 @@ body::before {
   inset: 0;
   background-image: radial-gradient(
       circle at 1px 1px,
-      rgb(var(--color-gold) / 0.04) 1px,
+      rgb(var(--color-gold) / 0.065) 1px,
       transparent 0
     );
   background-size: 24px 24px;
@@ -123,11 +132,11 @@ a:hover {
 
 @layer components {
   .panel {
-    @apply rounded-sm border border-gold/20 bg-ash/70 backdrop-blur-sm shadow-seal;
+    @apply rounded-sm border border-gold/25 bg-surface/85 backdrop-blur-sm shadow-seal;
   }
 
   .panel-heading {
-    @apply font-display text-gold uppercase tracking-imperial text-xs border-b border-gold/15 px-4 py-2;
+    @apply font-display text-gold uppercase tracking-imperial text-xs border-b border-gold/20 px-4 py-2;
   }
 
   .panel-body {
