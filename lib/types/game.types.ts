@@ -43,7 +43,7 @@ export interface DbNode {
   name: string | null;
   type: NodeType;
   entity_id: number | null;
-  province_id: number | null;
+  county_id: number | null;
   is_capital: boolean;
   map_x: number;
   map_y: number;
@@ -160,7 +160,7 @@ export interface CurrentCharacter {
   /** Joined city row for the character's home_city_id, if set. */
   home_city: Pick<DbCity, "id" | "name"> | null;
   /** Joined node row for where the character currently is, if set. */
-  current_node: Pick<DbNode, "id" | "name" | "type" | "map_x" | "map_y" | "province_id"> | null;
+  current_node: Pick<DbNode, "id" | "name" | "type" | "map_x" | "map_y" | "county_id"> | null;
 }
 
 export interface InventoryItem {
@@ -180,8 +180,12 @@ export interface MapNodeView {
   type: NodeType;
   map_x: number;
   map_y: number;
-  province_id: number | null;
+  county_id: number | null;
   is_capital: boolean;
+  /** When a `locations` row exists for this node (sites). */
+  location_id?: number | null;
+  owner_id?: string | null;
+  owner_type?: "character" | "clan" | null;
 }
 
 export interface MapConnectionView {

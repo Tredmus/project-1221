@@ -9,15 +9,15 @@ import type { MapNodeView } from "@/lib/types/game.types";
 
 const PADDING = 16;
 
-export interface ProvinceHullPath {
-  provinceId: number;
+export interface CountyHullPath {
+  countyId: number;
   d: string;
 }
 
 /**
- * Per-province map data: label anchor + optional closed polygon in legacy space.
+ * Per-county map data: label anchor + optional closed polygon in legacy space.
  */
-export interface ProvinceMapInput {
+export interface CountyMapInput {
   id: number;
   map_x: number;
   map_y: number;
@@ -95,24 +95,24 @@ export function legacyPolygonRingToPathD(
 }
 
 /**
- * Province shapes: use `map_polygon` when present; otherwise convex hull of
- * anchor + nodes in that province.
+ * County shapes: use `map_polygon` when present; otherwise convex hull of
+ * anchor + nodes in that county.
  */
 export function buildMapModel(
   viewW: number,
   viewH: number,
   nodes: MapNodeView[],
-  provinces: ProvinceMapInput[],
+  counties: CountyMapInput[],
 ): {
   projection: GeoProjection;
-  provinceHulls: ProvinceHullPath[];
+  countyHulls: CountyHullPath[];
 } {
   const nodeLonLat: [number, number][] = nodes.map((n) =>
     legacyToLonLat(n.map_x, n.map_y),
   );
 
   const extraLonLat: [number, number][] = [];
-  for (const p of provinces) {
+  for (const p of counties) {
     extraLonLat.push(legacyToLonLat(p.map_x, p.map_y));
     if (p.map_polygon) {
       for (const [x, y] of p.map_polygon) {
@@ -138,40 +138,40 @@ export function buildMapModel(
       fitObj,
     );
 
-  const provinceHulls: ProvinceHullPath[] = [];
+  const countyHulls: CountyHullPath[] = [];
   const donePolygon = new Set<number>();
 
-  for (const p of provinces) {
+  for (const p of counties) {
     const d =
       p.map_polygon && p.map_polygon.length >= 3
         ? legacyPolygonRingToPathD(projection, p.map_polygon)
         : null;
     if (d) {
-      provinceHulls.push({ provinceId: p.id, d });
+      countyHulls.push({ countyId: p.id, d });
       donePolygon.add(p.id);
     }
   }
 
-  const byProvince = new Map<number, [number, number][]>();
-  for (const p of provinces) {
+  const byCounty = new Map<number, [number, number][]>();
+  for (const p of counties) {
     if (donePolygon.has(p.id)) continue;
     const xy = projectLegacyXY(projection, p.map_x, p.map_y);
-    if (!byProvince.has(p.id)) byProvince.set(p.id, []);
-    byProvince.get(p.id)!.push(xy);
+    if (!byCounty.has(p.id)) byCounty.set(p.id, []);
+    byCounty.get(p.id)!.push(xy);
   }
   for (const n of nodes) {
-    if (n.province_id === null || donePolygon.has(n.province_id)) continue;
+    if (n.county_id === null || donePolygon.has(n.county_id)) continue;
     const xy = projectNode(projection, n);
-    if (!byProvince.has(n.province_id)) byProvince.set(n.province_id, []);
-    byProvince.get(n.province_id)!.push(xy);
+    if (!byCounty.has(n.county_id)) byCounty.set(n.county_id, []);
+    byCounty.get(n.county_id)!.push(xy);
   }
 
-  for (const [provinceId, pts] of byProvince) {
+  for (const [countyId, pts] of byCounty) {
     if (pts.length === 0) continue;
     if (pts.length === 1) {
       const [cx, cy] = pts[0]!;
-      provinceHulls.push({
-        provinceId,
+      countyHulls.push({
+        countyId,
         d: circlePath(cx, cy, 52),
       });
       continue;
@@ -181,8 +181,8 @@ export function buildMapModel(
         (pts[0]![0] + pts[1]![0]) / 2,
         (pts[0]![1] + pts[1]![1]) / 2,
       ];
-      provinceHulls.push({
-        provinceId,
+      countyHulls.push({
+        countyId,
         d: circlePath(cx, cy, 58),
       });
       continue;
@@ -190,16 +190,16 @@ export function buildMapModel(
     const hull = polygonHull(pts);
     if (!hull || hull.length < 3) {
       const [cx, cy] = pts[0]!;
-      provinceHulls.push({ provinceId, d: circlePath(cx, cy, 52) });
+      countyHulls.push({ countyId, d: circlePath(cx, cy, 52) });
       continue;
     }
-    provinceHulls.push({
-      provinceId,
+    countyHulls.push({
+      countyId,
       d: hullToPath(hull as [number, number][]),
     });
   }
 
-  provinceHulls.sort((a, b) => b.d.length - a.d.length);
+  countyHulls.sort((a, b) => b.d.length - a.d.length);
 
-  return { projection, provinceHulls };
+  return { projection, countyHulls };
 }

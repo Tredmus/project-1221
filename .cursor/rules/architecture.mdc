@@ -52,7 +52,7 @@ corrective row. Don't try to disable the trigger.
 
 RLS is enabled on every public table. Tables without explicit policies
 are effectively closed to the anon and authenticated roles. World data
-(nodes, cities, provinces, etc.) has explicit "FOR SELECT USING (true)"
+(nodes, cities, counties, etc.) has explicit "FOR SELECT USING (true)"
 policies. Don't add tables without thinking through the policy.
 
 ## Realtime
@@ -71,7 +71,7 @@ Where a column owner can be one of multiple types:
   use `uuid`), use a single column + `owner_type` discriminator.
 - If owner types have different column types (e.g. countries `int` vs
   clans `uuid`), use SEPARATE FK columns guarded by a CHECK that enforces
-  exactly one is non-null. See `provinces.owner_country_id` /
+  exactly one is non-null. See `counties.owner_country_id` /
   `owner_clan_id`.
 
 Don't store FK values as text or untyped int. The schema reflects this.

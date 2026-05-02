@@ -1,12 +1,15 @@
 /**
- * Generates SQL UPDATEs for provinces.map_polygon from WGS84 rings.
+ * Generates SQL UPDATEs for county map polygons from WGS84 rings.
  * Same calibration as lib/map/legacyGeography.ts (lonLatToLegacy).
+ *
+ * Default output targets `public.counties` (schema after migration 020).
  *
  * Usage:
  *   npx --yes tsx scripts/generate-province-polygons.ts
- *   npx --yes tsx scripts/generate-province-polygons.ts --write
+ *   npx --yes tsx scripts/generate-province-polygons.ts --write --legacy-provinces
  *
- * `--write` emits `supabase/migrations/014_province_polygons_detailed.sql` (UTF-8).
+ * `--write --legacy-provinces` regenerates `014_province_polygons_detailed.sql`,
+ * which must still reference `public.provinces` because that migration runs before 020.
  */
 
 import { writeFileSync } from "node:fs";
@@ -172,14 +175,8 @@ function escapeSqlString(s: string): string {
   return s.replace(/'/g, "''");
 }
 
-function emitSql(): string {
-  const lines: string[] = [
-    "-- Imperium - Migration 014: detailed province polygons",
-    "-- Outlines traced in WGS84 (approximate regional geography), projected into",
-    "-- parchment space with lonLatToLegacy (see lib/map/legacyGeography.ts).",
-    "-- Regenerate: npx --yes tsx scripts/generate-province-polygons.ts --write",
-    "",
-  ];
+function emitSql(table: "provinces" | "counties", headerLines: string[]): string {
+  const lines: string[] = [...headerLines, ""];
 
   const maxSeg = 0.055;
 
@@ -187,7 +184,7 @@ function emitSql(): string {
     const dense = densifyRing(coarse, maxSeg);
     const json = ringToSqlJson(dense);
     lines.push(
-      `UPDATE public.provinces`,
+      `UPDATE public.${table}`,
       `SET map_polygon = '${escapeSqlString(json)}'::jsonb`,
       `WHERE name = '${escapeSqlString(name)}';`,
       "",
@@ -198,9 +195,26 @@ function emitSql(): string {
 }
 
 function main(): void {
-  const sql = emitSql();
   const write = process.argv.includes("--write");
-  if (write) {
+  const legacy = process.argv.includes("--legacy-provinces");
+
+  if (write && !legacy) {
+    console.error(
+      "Refusing --write without --legacy-provinces (would overwrite 014 with the wrong table name).",
+    );
+    console.error(
+      "Use: npx --yes tsx scripts/generate-province-polygons.ts --write --legacy-provinces",
+    );
+    process.exit(1);
+  }
+
+  if (write && legacy) {
+    const sql = emitSql("provinces", [
+      "-- Imperium - Migration 014: detailed province polygons (table renamed to counties in 020)",
+      "-- Outlines traced in WGS84 (approximate regional geography), projected into",
+      "-- parchment space with lonLatToLegacy (see lib/map/legacyGeography.ts).",
+      "-- Regenerate: npx --yes tsx scripts/generate-province-polygons.ts --write --legacy-provinces",
+    ]);
     const out = join(
       process.cwd(),
       "supabase/migrations/014_province_polygons_detailed.sql",
@@ -209,6 +223,11 @@ function main(): void {
     console.log(`Wrote ${out}`);
     return;
   }
+
+  const sql = emitSql("counties", [
+    "-- Ad-hoc / post-020: county map polygons (public.counties)",
+    "-- Projected with lonLatToLegacy (see lib/map/legacyGeography.ts).",
+  ]);
   console.log(sql);
 }
 

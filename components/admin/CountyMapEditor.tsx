@@ -18,22 +18,32 @@ import {
   projectLegacyXY,
   projectNode,
   projectedXYToLegacy,
-  type ProvinceMapInput,
+  type CountyMapInput,
 } from "@/lib/map/buildMapModel";
 import {
   beginMapEditorReferenceUploadAction,
   completeMapEditorReferenceUploadAction,
-  createProvinceAction,
-  updateProvincePolygonAction,
-  updateMapEditorReferenceTransformAction,
+  createConnectedNodeAction,
+  createCountyAction,
+  deleteCountyAction,
+  deleteMapNodeAction,
   removeMapEditorReferenceAction,
+  updateMapEditorReferenceTransformAction,
+  updateCountyPolygonAction,
+  updateMapNodeAction,
+  updateMapNodePositionAction,
 } from "@/app/admin/map-editor/actions";
 import type {
-  MapEditorProvinceRow,
+  MapEditorCountyRow,
   MapEditorRegionRow,
 } from "@/app/admin/map-editor/page";
 import type { MapEditorReferenceServerProps } from "@/app/admin/map-editor/types";
-import type { MapConnectionView, MapNodeView } from "@/lib/types/game.types";
+import {
+  NODE_TYPES,
+  type MapConnectionView,
+  type MapNodeView,
+  type NodeType,
+} from "@/lib/types/game.types";
 
 const VIEW_W = 1000;
 const VIEW_H = 620;
@@ -122,6 +132,17 @@ const PROVINCE_STROKES = [
 ];
 
 const CLOSE_EPS = 0.25;
+
+/** Node types that have a `locations` row (owner applies). */
+const LOCATION_NODE_TYPES: ReadonlySet<NodeType> = new Set([
+  "settlement",
+  "farm",
+  "mine",
+  "port",
+  "fortress",
+]);
+
+type EditorMode = "counties" | "nodes";
 
 /** Strip a duplicated closing vertex so editing uses one index per corner. */
 function normalizeOpenRing(ring: [number, number][]): [number, number][] {
@@ -213,17 +234,17 @@ function openPathFromLegacy(
 
 const BORROW_VERTEX_HIT_PX = 22;
 
-/** Nearest existing province vertex to a screen-space click (for compose mode). */
-function nearestProvinceVertexFromScreen(
+/** Nearest existing county vertex to a screen-space click (for compose mode). */
+function nearestCountyVertexFromScreen(
   px: number,
   py: number,
   projection: GeoProjection,
-  provinceRows: MapEditorProvinceRow[],
+  countyRows: MapEditorCountyRow[],
   maxDistPx: number,
 ): [number, number] | null {
   let best: [number, number] | null = null;
   let bestSq = maxDistPx * maxDistPx;
-  for (const p of provinceRows) {
+  for (const p of countyRows) {
     if (!p.map_polygon || p.map_polygon.length < 3) continue;
     const open = normalizeOpenRing(
       p.map_polygon.map(([a, b]) => [a, b] as [number, number]),
@@ -245,15 +266,15 @@ function nearestProvinceVertexFromScreen(
 interface Props {
   nodes: MapNodeView[];
   connections: MapConnectionView[];
-  provinces: MapEditorProvinceRow[];
+  counties: MapEditorCountyRow[];
   regions: MapEditorRegionRow[];
   reference: MapEditorReferenceServerProps;
 }
 
-export default function ProvinceMapEditor({
+export default function CountyMapEditor({
   nodes,
   connections,
-  provinces,
+  counties,
   regions,
   reference,
 }: Props) {
@@ -266,10 +287,10 @@ export default function ProvinceMapEditor({
   const projRef = useRef(buildMapModel(VIEW_W, VIEW_H, [], []).projection);
 
   const [selectedId, setSelectedId] = useState<number | null>(
-    () => provinces[0]?.id ?? null,
+    () => counties[0]?.id ?? null,
   );
   const [workingRing, setWorkingRing] = useState<[number, number][]>([]);
-  /** Pick vertices from existing provinces, then create new province with that ring. */
+  /** Pick vertices from existing counties, then create a new county with that ring. */
   const [composeBorderMode, setComposeBorderMode] = useState(false);
   const [composedPickRing, setComposedPickRing] = useState<[number, number][]>(
     [],
@@ -296,7 +317,7 @@ export default function ProvinceMapEditor({
     panX: number;
     panY: number;
   } | null>(null);
-  const [newProvinceName, setNewProvinceName] = useState("");
+  const [newCountyName, setNewCountyName] = useState("");
   const [newRegionId, setNewRegionId] = useState<number | null>(
     () => regions[0]?.id ?? null,
   );
@@ -306,6 +327,36 @@ export default function ProvinceMapEditor({
   const [refPersistNotice, setRefPersistNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isRefPending, startRefTransition] = useTransition();
+
+  const [editorMode, setEditorMode] = useState<EditorMode>("counties");
+  const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
+  const [nodeName, setNodeName] = useState("");
+  const [nodeType, setNodeType] = useState<NodeType>("road");
+  const [nodeCountyId, setNodeCountyId] = useState<number | null>(null);
+  const [nodeMapX, setNodeMapX] = useState(0);
+  const [nodeMapY, setNodeMapY] = useState(0);
+  const [nodeOwnerId, setNodeOwnerId] = useState("");
+  const [nodeOwnerType, setNodeOwnerType] = useState<
+    "character" | "clan" | ""
+  >("");
+  const [nodePanelError, setNodePanelError] = useState<string | null>(null);
+  const [nodePanelStatus, setNodePanelStatus] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    nodeId: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+  const [deleteNodeConfirm, setDeleteNodeConfirm] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
+  const [deleteCountyConfirm, setDeleteCountyConfirm] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
+  const [nodeDragAdjustMode, setNodeDragAdjustMode] = useState(false);
+  const [nodeDragActiveId, setNodeDragActiveId] = useState<number | null>(null);
+  const nodeDragLastLegRef = useRef<[number, number] | null>(null);
 
   useEffect(() => {
     setRefImage(reference.signedUrl);
@@ -330,9 +381,9 @@ export default function ProvinceMapEditor({
     return () => window.clearTimeout(t);
   }, [refPersistNotice]);
 
-  const provinceInputs: ProvinceMapInput[] = useMemo(
+  const countyInputs: CountyMapInput[] = useMemo(
     () =>
-      provinces
+      counties
         .filter(
           (p) =>
             p.map_x != null &&
@@ -346,27 +397,36 @@ export default function ProvinceMapEditor({
           map_y: p.map_y!,
           map_polygon: p.map_polygon,
         })),
-    [provinces],
+    [counties],
   );
 
+  const displayNodes = useMemo(() => {
+    if (selectedNodeId === null) return nodes;
+    return nodes.map((n) =>
+      n.id === selectedNodeId
+        ? { ...n, map_x: nodeMapX, map_y: nodeMapY }
+        : n,
+    );
+  }, [nodes, selectedNodeId, nodeMapX, nodeMapY]);
+
   const mapModel = useMemo(
-    () => buildMapModel(VIEW_W, VIEW_H, nodes, provinceInputs),
-    [nodes, provinceInputs],
+    () => buildMapModel(VIEW_W, VIEW_H, displayNodes, countyInputs),
+    [displayNodes, countyInputs],
   );
 
   projRef.current = mapModel.projection;
 
   const nodesById = useMemo(
-    () => new Map(nodes.map((n) => [n.id, n] as const)),
-    [nodes],
+    () => new Map(displayNodes.map((n) => [n.id, n] as const)),
+    [displayNodes],
   );
 
-  const provinceColor = useCallback(
+  const countyColor = useCallback(
     (id: number) => {
-      const idx = provinces.findIndex((p) => p.id === id);
+      const idx = counties.findIndex((p) => p.id === id);
       return PROVINCE_STROKES[Math.max(0, idx) % PROVINCE_STROKES.length]!;
     },
-    [provinces],
+    [counties],
   );
 
   const referenceTransform = useMemo(
@@ -394,7 +454,7 @@ export default function ProvinceMapEditor({
       setWorkingRing([]);
       return;
     }
-    const p = provinces.find((x) => x.id === selectedId);
+    const p = counties.find((x) => x.id === selectedId);
     const poly = p?.map_polygon;
     setWorkingRing(
       poly
@@ -403,7 +463,49 @@ export default function ProvinceMapEditor({
           )
         : [],
     );
-  }, [selectedId, provinces]);
+  }, [selectedId, counties]);
+
+  useEffect(() => {
+    if (selectedNodeId === null) {
+      setNodeName("");
+      setNodeType("road");
+      setNodeCountyId(null);
+      setNodeMapX(0);
+      setNodeMapY(0);
+      setNodeOwnerId("");
+      setNodeOwnerType("");
+      return;
+    }
+    const n = nodes.find((x) => x.id === selectedNodeId);
+    if (!n) {
+      setSelectedNodeId(null);
+      return;
+    }
+    setNodeName(n.name ?? "");
+    setNodeType(n.type);
+    setNodeCountyId(n.county_id);
+    setNodeMapX(n.map_x);
+    setNodeMapY(n.map_y);
+    setNodeOwnerId(n.owner_id ? String(n.owner_id) : "");
+    setNodeOwnerType(
+      n.owner_type === "character" || n.owner_type === "clan"
+        ? n.owner_type
+        : "",
+    );
+    setNodePanelError(null);
+    setNodePanelStatus(null);
+  }, [selectedNodeId, nodes]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest("[data-map-editor-ctx]")) return;
+      setContextMenu(null);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [contextMenu]);
 
   useEffect(() => {
     const svgEl = svgRef.current;
@@ -425,7 +527,50 @@ export default function ProvinceMapEditor({
       svg.on(".zoom", null);
       zoomBehav.current = null;
     };
-  }, [nodes, provinceInputs]);
+  }, [displayNodes, countyInputs]);
+
+  useEffect(() => {
+    if (nodeDragActiveId === null) return;
+
+    const onMove = (ev: PointerEvent) => {
+      const layer = zoomLayerRef.current;
+      if (!layer) return;
+      const [px, py] = pointer(ev, layer);
+      const leg = projectedXYToLegacy(projRef.current, px, py);
+      if (!leg) return;
+      nodeDragLastLegRef.current = [leg[0], leg[1]];
+      setNodeMapX(leg[0]);
+      setNodeMapY(leg[1]);
+    };
+
+    const onUp = () => {
+      const id = nodeDragActiveId;
+      const last = nodeDragLastLegRef.current;
+      nodeDragLastLegRef.current = null;
+      setNodeDragActiveId(null);
+      suppressClickUntilRef.current = Date.now() + 450;
+
+      if (id == null || last == null) return;
+      startTransition(async () => {
+        const res = await updateMapNodePositionAction(id, last[0], last[1]);
+        if (!res.ok) {
+          setNodePanelError(res.error ?? "Could not save position.");
+          return;
+        }
+        setNodePanelStatus("Position written to the ledger.");
+        router.refresh();
+      });
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [nodeDragActiveId, router]);
 
   const clientToLegacy = useCallback(
     (ev: React.MouseEvent | React.PointerEvent): [number, number] | null => {
@@ -444,11 +589,11 @@ export default function ProvinceMapEditor({
       setStatus(null);
       const closed = ensureClosedRing(ring);
       if (closed.length < 3) {
-        setError("A province outline needs at least three vertices.");
+        setError("A county outline needs at least three vertices.");
         return;
       }
       startTransition(async () => {
-        const res = await updateProvincePolygonAction(selectedId, closed);
+        const res = await updateCountyPolygonAction(selectedId, closed);
         if (!res.ok) {
           setError(res.error ?? "Save failed.");
           return;
@@ -476,6 +621,12 @@ export default function ProvinceMapEditor({
     if ((e.target as Element).closest(".edge-split-handle")) return;
     if ((e.target as Element).closest(".borrow-vtx")) return;
 
+    if (editorMode === "nodes") {
+      if ((e.target as Element).closest(".map-node-root")) return;
+      setSelectedNodeId(null);
+      return;
+    }
+
     if (composeBorderMode) {
       if (clickTimerRef.current !== null) {
         window.clearTimeout(clickTimerRef.current);
@@ -486,11 +637,11 @@ export default function ProvinceMapEditor({
         const layer = zoomLayerRef.current;
         if (!layer) return;
         const [px, py] = pointer(e.nativeEvent, layer);
-        const hit = nearestProvinceVertexFromScreen(
+        const hit = nearestCountyVertexFromScreen(
           px,
           py,
           mapModel.projection,
-          provinces,
+          counties,
           BORROW_VERTEX_HIT_PX,
         );
         if (hit) {
@@ -521,6 +672,14 @@ export default function ProvinceMapEditor({
 
   const onSvgDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (refAdjustMode) return;
+    if (editorMode === "nodes") {
+      e.preventDefault();
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      return;
+    }
     if (composeBorderMode) return;
     e.preventDefault();
     if (clickTimerRef.current !== null) {
@@ -660,17 +819,17 @@ export default function ProvinceMapEditor({
     });
   };
 
-  const createProvince = () => {
+  const createCounty = () => {
     setError(null);
     setStatus(null);
     startTransition(async () => {
-      const res = await createProvinceAction(newProvinceName, newRegionId);
+      const res = await createCountyAction(newCountyName, newRegionId);
       if (!res.ok) {
-        setError(res.error ?? "Could not create province.");
+        setError(res.error ?? "Could not create county.");
         return;
       }
-      setNewProvinceName("");
-      setStatus("Province created. Draw its border when ready.");
+      setNewCountyName("");
+      setStatus("County created. Draw its border when ready.");
       if (res.id !== null) {
         setSelectedId(res.id);
       }
@@ -679,8 +838,8 @@ export default function ProvinceMapEditor({
   };
 
   const hasBorrowSources = useMemo(
-    () => provinces.some((p) => p.map_polygon && p.map_polygon.length >= 3),
-    [provinces],
+    () => counties.some((p) => p.map_polygon && p.map_polygon.length >= 3),
+    [counties],
   );
 
   const enterComposeBorderMode = () => {
@@ -690,7 +849,7 @@ export default function ProvinceMapEditor({
     }
     if (!hasBorrowSources) {
       setError(
-        "At least one other province needs a drawn border to borrow corners from.",
+        "At least one other county needs a drawn border to borrow corners from.",
       );
       return;
     }
@@ -715,10 +874,10 @@ export default function ProvinceMapEditor({
     setError(null);
   };
 
-  const finishComposeAndCreateProvince = () => {
-    const name = newProvinceName.trim();
+  const finishComposeAndCreateCounty = () => {
+    const name = newCountyName.trim();
     if (!name) {
-      setError("Name the province before finishing.");
+      setError("Name the county before finishing.");
       return;
     }
     if (composedPickRing.length < 3) {
@@ -728,34 +887,131 @@ export default function ProvinceMapEditor({
     setError(null);
     setStatus(null);
     startTransition(async () => {
-      const createRes = await createProvinceAction(name, newRegionId);
+      const createRes = await createCountyAction(name, newRegionId);
       if (!createRes.ok || createRes.id === null) {
-        setError(createRes.error ?? "Could not create province.");
+        setError(createRes.error ?? "Could not create county.");
         return;
       }
       const closed = ensureClosedRing(composedPickRing);
-      const polyRes = await updateProvincePolygonAction(createRes.id, closed);
+      const polyRes = await updateCountyPolygonAction(createRes.id, closed);
       if (!polyRes.ok) {
         setError(polyRes.error ?? "Polygon could not be saved.");
         setComposeBorderMode(false);
         setComposedPickRing([]);
         setSelectedId(createRes.id);
         setComposeRestoreSelectedId(null);
-        setNewProvinceName("");
+        setNewCountyName("");
         router.refresh();
         return;
       }
-      setNewProvinceName("");
+      setNewCountyName("");
       setComposeBorderMode(false);
       setComposedPickRing([]);
       setComposeRestoreSelectedId(null);
       setSelectedId(createRes.id);
       setStatus(
-        "Province forged from neighbours; refine vertices or save again.",
+        "County forged from neighbours; refine vertices or save again.",
       );
       router.refresh();
     });
   };
+
+  const changeEditorMode = (mode: EditorMode) => {
+    setContextMenu(null);
+    setNodeDragAdjustMode(false);
+    setNodeDragActiveId(null);
+    if (mode === "nodes" && composeBorderMode) {
+      setComposeBorderMode(false);
+      setComposedPickRing([]);
+      setSelectedId(composeRestoreSelectedId);
+      setComposeRestoreSelectedId(null);
+    }
+    setSelectedNodeId(null);
+    setEditorMode(mode);
+  };
+
+  const saveNode = () => {
+    if (selectedNodeId === null) return;
+    setNodePanelError(null);
+    setNodePanelStatus(null);
+    startTransition(async () => {
+      const res = await updateMapNodeAction(selectedNodeId, {
+        name: nodeName,
+        type: nodeType,
+        countyId: nodeCountyId,
+        mapX: nodeMapX,
+        mapY: nodeMapY,
+        locationOwnerId: nodeOwnerId.trim() || null,
+        locationOwnerType: nodeOwnerType === "" ? null : nodeOwnerType,
+      });
+      if (!res.ok) {
+        setNodePanelError(res.error ?? "Save failed.");
+        return;
+      }
+      setNodePanelStatus("Written to the ledger.");
+      router.refresh();
+    });
+  };
+
+  const addConnectedFromContext = (fromId: number) => {
+    setContextMenu(null);
+    setNodePanelError(null);
+    setNodePanelStatus(null);
+    startTransition(async () => {
+      const res = await createConnectedNodeAction(fromId);
+      if (!res.ok || res.id == null) {
+        setNodePanelError(res.error ?? "Could not add node.");
+        return;
+      }
+      setSelectedNodeId(res.id);
+      setNodePanelStatus("New node placed. Name it and set its type.");
+      router.refresh();
+    });
+  };
+
+  const runDeleteNode = () => {
+    if (!deleteNodeConfirm) return;
+    const { id } = deleteNodeConfirm;
+    setNodePanelError(null);
+    startTransition(async () => {
+      const res = await deleteMapNodeAction(id);
+      if (!res.ok) {
+        setNodePanelError(res.error ?? "Delete failed.");
+        setDeleteNodeConfirm(null);
+        return;
+      }
+      setDeleteNodeConfirm(null);
+      setSelectedNodeId((cur) => (cur === id ? null : cur));
+      router.refresh();
+    });
+  };
+
+  const runDeleteCounty = () => {
+    if (!deleteCountyConfirm) return;
+    const { id } = deleteCountyConfirm;
+    setError(null);
+    startTransition(async () => {
+      const res = await deleteCountyAction(id);
+      if (!res.ok) {
+        setError(res.error ?? "Delete failed.");
+        setDeleteCountyConfirm(null);
+        return;
+      }
+      setDeleteCountyConfirm(null);
+      setSelectedId((cur) => (cur === id ? null : cur));
+      router.refresh();
+    });
+  };
+
+  const onSvgContextMenu = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (editorMode !== "nodes") return;
+    if ((e.target as Element).closest(".map-node-root")) return;
+    setContextMenu(null);
+  };
+
+  const selectedNode =
+    selectedNodeId !== null ? nodesById.get(selectedNodeId) : undefined;
+  const ownerFieldsEnabled = LOCATION_NODE_TYPES.has(nodeType);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -773,6 +1029,7 @@ export default function ProvinceMapEditor({
             className="h-full min-h-[420px] w-full touch-none bg-map-canvas"
             onClick={onSvgClick}
             onDoubleClick={onSvgDoubleClick}
+            onContextMenu={onSvgContextMenu}
           >
             <defs>
               <pattern
@@ -835,8 +1092,8 @@ export default function ProvinceMapEditor({
                 })}
               </g>
 
-              <g className="province-overlays">
-                {provinces.map((p) => {
+              <g className="county-overlays">
+                {counties.map((p) => {
                   if (p.id === selectedId) return null;
                   if (!p.map_polygon || p.map_polygon.length < 3) return null;
                   const d = legacyPolygonRingToPathD(
@@ -849,7 +1106,7 @@ export default function ProvinceMapEditor({
                       key={`pv-${p.id}`}
                       d={d}
                       fill="rgba(201, 164, 76, 0.06)"
-                      stroke={provinceColor(p.id)}
+                      stroke={countyColor(p.id)}
                       strokeWidth={1.1}
                       strokeDasharray="4 3"
                       className="pointer-events-none"
@@ -959,7 +1216,7 @@ export default function ProvinceMapEditor({
 
               {composeBorderMode ? (
                 <g className="borrow-source-vertices pointer-events-auto">
-                  {provinces.flatMap((p) => {
+                  {counties.flatMap((p) => {
                     if (!p.map_polygon || p.map_polygon.length < 3) return [];
                     const open = normalizeOpenRing(
                       p.map_polygon.map(
@@ -1000,24 +1257,79 @@ export default function ProvinceMapEditor({
                 </g>
               ) : null}
 
-              <g className="nodes pointer-events-none">
-                {nodes.map((n) => {
+              <g
+                className={
+                  editorMode === "counties" ? "pointer-events-none" : undefined
+                }
+              >
+                {displayNodes.map((n) => {
                   const [x, y] = projectNode(mapModel.projection, n);
                   const r = NODE_RADIUS[n.type];
+                  const hitR = Math.max(r + 12, 20);
+                  const isSel =
+                    editorMode === "nodes" && selectedNodeId === n.id;
                   return (
-                    <g key={n.id}>
+                    <g
+                      key={n.id}
+                      className="map-node-root"
+                      style={{
+                        cursor:
+                          editorMode === "nodes"
+                            ? nodeDragAdjustMode && isSel
+                              ? nodeDragActiveId === n.id
+                                ? "grabbing"
+                                : "grab"
+                              : "pointer"
+                            : undefined,
+                      }}
+                      onClick={(e) => {
+                        if (editorMode !== "nodes") return;
+                        e.stopPropagation();
+                        setSelectedNodeId(n.id);
+                        setContextMenu(null);
+                      }}
+                      onContextMenu={(e) => {
+                        if (editorMode !== "nodes") return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setContextMenu({
+                          nodeId: n.id,
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                        });
+                      }}
+                    >
+                      {isSel ? (
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={r + 8}
+                          fill="none"
+                          stroke="rgba(233, 200, 122, 0.92)"
+                          strokeWidth={2}
+                          pointerEvents="none"
+                        />
+                      ) : null}
                       <circle
                         cx={x}
                         cy={y}
                         r={r + 2}
                         fill="rgba(18, 14, 12, 0.55)"
+                        pointerEvents="none"
                       />
-                      <circle cx={x} cy={y} r={r} fill={NODE_FILL[n.type]} />
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={r}
+                        fill={NODE_FILL[n.type]}
+                        pointerEvents="none"
+                      />
                       <text
                         x={x}
                         y={y - r - 6}
                         textAnchor="middle"
                         fill="rgb(var(--color-parchment))"
+                        pointerEvents="none"
                         style={{
                           fontFamily: "var(--font-display)",
                           fontSize: 9,
@@ -1027,12 +1339,35 @@ export default function ProvinceMapEditor({
                       >
                         {n.name ?? `Node ${n.id}`}
                       </text>
+                      {editorMode === "nodes" ? (
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={hitR}
+                          fill="transparent"
+                          style={{ touchAction: "none" }}
+                          onPointerDown={(e) => {
+                            if (
+                              !nodeDragAdjustMode ||
+                              selectedNodeId !== n.id
+                            ) {
+                              return;
+                            }
+                            e.stopPropagation();
+                            e.preventDefault();
+                            nodeDragLastLegRef.current = null;
+                            setNodeDragActiveId(n.id);
+                          }}
+                        />
+                      ) : null}
                     </g>
                   );
                 })}
               </g>
 
-              {selectedId !== null && openWorkingRing.length >= 2 ? (
+              {editorMode === "counties" &&
+              selectedId !== null &&
+              openWorkingRing.length >= 2 ? (
                 <g
                   className={`edge-split-handles ${refAdjustMode ? "pointer-events-none" : "pointer-events-auto"}`}
                   aria-hidden={refAdjustMode}
@@ -1076,7 +1411,9 @@ export default function ProvinceMapEditor({
                 </g>
               ) : null}
 
-              {selectedId !== null && openWorkingRing.length > 0 ? (
+              {editorMode === "counties" &&
+              selectedId !== null &&
+              openWorkingRing.length > 0 ? (
                 <g
                   className={`vertex-handles ${refAdjustMode ? "pointer-events-none" : ""}`}
                   aria-hidden={refAdjustMode}
@@ -1135,12 +1472,20 @@ export default function ProvinceMapEditor({
             </g>
           </svg>
           <p className="px-4 py-2 font-serif text-xs text-parchment-deep border-t border-gold/15">
-            {composeBorderMode ? (
+            {editorMode === "nodes" ? (
+              <>
+                Nodes mode: click a marker to edit its charter in the sidebar.
+                Enable &ldquo;Reposition by dragging&rdquo; to move the selected
+                marker on the parchment (saved on release). Right-click a node
+                for &ldquo;Add connected node here&rdquo;. Drag the canvas to
+                pan; scroll or pinch to zoom.
+              </>
+            ) : composeBorderMode ? (
               <>
                 Composing a new border: click mint-green corners on existing
-                provinces (order follows your clicks), or click the parchment near
+                counties (order follows your clicks), or click the parchment near
                 a corner to snap to it. Undo picks in the sidebar; when you have
-                three or more points, name the province and choose finish.
+                three or more points, name the county and choose finish.
               </>
             ) : (
               <>
@@ -1156,16 +1501,45 @@ export default function ProvinceMapEditor({
       </div>
 
       <div className="space-y-4">
+        <div className="panel overflow-hidden">
+          <div className="panel-heading flex p-0">
+            <button
+              type="button"
+              className={`flex-1 px-3 py-2.5 font-display uppercase tracking-imperial text-xs transition-colors border-b-2 ${
+                editorMode === "counties"
+                  ? "border-gold text-gold bg-imperial/35"
+                  : "border-transparent text-parchment-deep hover:text-parchment"
+              }`}
+              onClick={() => changeEditorMode("counties")}
+            >
+              Counties
+            </button>
+            <button
+              type="button"
+              className={`flex-1 px-3 py-2.5 font-display uppercase tracking-imperial text-xs transition-colors border-b-2 ${
+                editorMode === "nodes"
+                  ? "border-gold text-gold bg-imperial/35"
+                  : "border-transparent text-parchment-deep hover:text-parchment"
+              }`}
+              onClick={() => changeEditorMode("nodes")}
+            >
+              Nodes
+            </button>
+          </div>
+        </div>
+
+        {editorMode === "counties" ? (
+        <>
         <div className="panel">
-          <h3 className="panel-heading">New province</h3>
+          <h3 className="panel-heading">New county</h3>
           <div className="panel-body space-y-3">
             <label className="block">
               <span className="label-imperial">Name</span>
               <input
                 type="text"
                 className="input-imperial mt-1 w-full"
-                value={newProvinceName}
-                onChange={(e) => setNewProvinceName(e.target.value)}
+                value={newCountyName}
+                onChange={(e) => setNewCountyName(e.target.value)}
                 placeholder="e.g. Thessaly"
                 maxLength={120}
               />
@@ -1194,10 +1568,10 @@ export default function ProvinceMapEditor({
                 <button
                   type="button"
                   className="btn-imperial text-xs w-full"
-                  disabled={!newProvinceName.trim() || isPending}
-                  onClick={createProvince}
+                  disabled={!newCountyName.trim() || isPending}
+                  onClick={createCounty}
                 >
-                  {isPending ? "Working…" : "Create province"}
+                  {isPending ? "Working…" : "Create county"}
                 </button>
                 <button
                   type="button"
@@ -1211,7 +1585,7 @@ export default function ProvinceMapEditor({
                 </button>
                 {!hasBorrowSources ? (
                   <p className="font-serif text-xs text-parchment-deep mt-2">
-                    Draw at least one province fully so its corners can be reused
+                    Draw at least one county fully so its corners can be reused
                     here.
                   </p>
                 ) : null}
@@ -1219,8 +1593,8 @@ export default function ProvinceMapEditor({
             ) : (
               <>
                 <p className="font-serif text-xs text-parchment-deep leading-relaxed">
-                  Click the mint-green dots along existing provinces (order
-                  matters). Three or more corners, then name the province and
+                  Click the mint-green dots along existing counties (order
+                  matters). Three or more corners, then name the county and
                   finish.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-3">
@@ -1245,19 +1619,19 @@ export default function ProvinceMapEditor({
                   type="button"
                   className="btn-imperial text-xs w-full mt-3"
                   disabled={
-                    !newProvinceName.trim() ||
+                    !newCountyName.trim() ||
                     composedPickRing.length < 3 ||
                     isPending
                   }
-                  onClick={finishComposeAndCreateProvince}
+                  onClick={finishComposeAndCreateCounty}
                 >
-                  {isPending ? "Working…" : "Finish & create province"}
+                  {isPending ? "Working…" : "Finish & create county"}
                 </button>
               </>
             )}
             {!composeBorderMode && regions.length === 0 ? (
               <p className="font-serif text-xs text-parchment-deep mt-2">
-                No regions yet; the province will have no region until you add
+                No regions yet; the county will have no region until you add
                 one and edit this row.
               </p>
             ) : null}
@@ -1265,7 +1639,7 @@ export default function ProvinceMapEditor({
         </div>
 
         <div className="panel">
-          <h3 className="panel-heading">Province</h3>
+          <h3 className="panel-heading">County</h3>
           <div className="panel-body space-y-3">
             <label className="block">
               <span className="label-imperial">Active border</span>
@@ -1280,10 +1654,10 @@ export default function ProvinceMapEditor({
                   setStatus(null);
                 }}
               >
-                {provinces.length === 0 ? (
-                  <option value="">No provinces</option>
+                {counties.length === 0 ? (
+                  <option value="">No counties</option>
                 ) : null}
-                {provinces.map((p) => (
+                {counties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -1320,6 +1694,19 @@ export default function ProvinceMapEditor({
               </button>
             </div>
 
+            <button
+              type="button"
+              className="btn-ghost text-xs w-full border border-blood/25 text-blood hover:bg-blood/10"
+              disabled={selectedId === null || isPending}
+              onClick={() => {
+                const p = counties.find((x) => x.id === selectedId);
+                if (!p) return;
+                setDeleteCountyConfirm({ id: p.id, name: p.name });
+              }}
+            >
+              Delete county
+            </button>
+
             {error ? (
               <p className="font-serif text-sm text-blood">{error}</p>
             ) : null}
@@ -1328,6 +1715,185 @@ export default function ProvinceMapEditor({
             ) : null}
           </div>
         </div>
+        </>
+        ) : (
+        <div className="panel">
+          <h3 className="panel-heading">Node</h3>
+          <div className="panel-body space-y-3">
+            {selectedNode ? (
+              <>
+                <label className="block">
+                  <span className="label-imperial">Name</span>
+                  <input
+                    type="text"
+                    className="input-imperial mt-1 w-full"
+                    value={nodeName}
+                    onChange={(e) => setNodeName(e.target.value)}
+                    maxLength={120}
+                  />
+                </label>
+                <label className="block">
+                  <span className="label-imperial">Type</span>
+                  <select
+                    className="input-imperial mt-1 w-full"
+                    value={nodeType}
+                    onChange={(e) =>
+                      setNodeType(e.target.value as NodeType)
+                    }
+                  >
+                    {NODE_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="label-imperial">County</span>
+                  <select
+                    className="input-imperial mt-1 w-full"
+                    value={
+                      nodeCountyId === null ? "" : String(nodeCountyId)
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setNodeCountyId(v === "" ? null : Number(v));
+                    }}
+                  >
+                    <option value="">None</option>
+                    {counties.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="label-imperial">Map X</span>
+                    <input
+                      type="number"
+                      step="any"
+                      className="input-imperial mt-1 w-full tabular-nums"
+                      value={Number.isFinite(nodeMapX) ? nodeMapX : ""}
+                      onChange={(e) =>
+                        setNodeMapX(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="label-imperial">Map Y</span>
+                    <input
+                      type="number"
+                      step="any"
+                      className="input-imperial mt-1 w-full tabular-nums"
+                      value={Number.isFinite(nodeMapY) ? nodeMapY : ""}
+                      onChange={(e) =>
+                        setNodeMapY(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="flex cursor-pointer items-start gap-2 font-serif text-sm text-parchment-dark">
+                  <input
+                    type="checkbox"
+                    className="mt-1 accent-gold"
+                    checked={nodeDragAdjustMode}
+                    onChange={(e) => {
+                      setNodeDragAdjustMode(e.target.checked);
+                      setNodeDragActiveId(null);
+                    }}
+                  />
+                  <span>
+                    <span className="font-display uppercase tracking-imperial text-xs text-gold">
+                      Reposition by dragging
+                    </span>
+                    <span className="block text-xs text-parchment-deep mt-0.5">
+                      When checked, drag this marker on the canvas; the
+                      coordinates are written when you release. Leave off to
+                      avoid shifting it by mistake.
+                    </span>
+                  </span>
+                </label>
+                <div className={ownerFieldsEnabled ? "" : "opacity-60"}>
+                  <label className="block">
+                    <span className="label-imperial">Owner id</span>
+                    <input
+                      type="text"
+                      className="input-imperial mt-1 w-full tabular-nums text-xs"
+                      value={nodeOwnerId}
+                      onChange={(e) => setNodeOwnerId(e.target.value)}
+                      placeholder="UUID"
+                      disabled={!ownerFieldsEnabled}
+                    />
+                  </label>
+                  <label className="block mt-2">
+                    <span className="label-imperial">Owner type</span>
+                    <select
+                      className="input-imperial mt-1 w-full"
+                      value={nodeOwnerType}
+                      onChange={(e) =>
+                        setNodeOwnerType(
+                          e.target.value === "character" ||
+                            e.target.value === "clan"
+                            ? e.target.value
+                            : "",
+                        )
+                      }
+                      disabled={!ownerFieldsEnabled}
+                    >
+                      <option value="">None</option>
+                      <option value="character">character</option>
+                      <option value="clan">clan</option>
+                    </select>
+                  </label>
+                </div>
+                {!ownerFieldsEnabled ? (
+                  <p className="font-serif text-xs text-parchment-deep">
+                    Ownership applies to settlement, farm, mine, port, and
+                    fortress sites. Road and city nodes use other records.
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn-imperial text-xs w-full"
+                  disabled={isPending || !nodeName.trim()}
+                  onClick={saveNode}
+                >
+                  {isPending ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost text-xs w-full border border-blood/25 text-blood hover:bg-blood/10"
+                  disabled={isPending}
+                  onClick={() =>
+                    setDeleteNodeConfirm({
+                      id: selectedNode.id,
+                      name: selectedNode.name ?? `Node ${selectedNode.id}`,
+                    })
+                  }
+                >
+                  Delete node
+                </button>
+                {nodePanelError ? (
+                  <p className="font-serif text-sm text-blood">
+                    {nodePanelError}
+                  </p>
+                ) : null}
+                {nodePanelStatus ? (
+                  <p className="font-serif text-sm text-verdigris">
+                    {nodePanelStatus}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="font-serif text-sm text-parchment-deep">
+                Click a node on the canvas to inspect and amend its charter.
+              </p>
+            )}
+          </div>
+        </div>
+        )}
 
         <div className="panel">
           <h3 className="panel-heading">Reference chart</h3>
@@ -1393,7 +1959,7 @@ export default function ProvinceMapEditor({
                       Adjust reference
                     </span>
                     <span className="block text-xs text-parchment-deep mt-0.5">
-                      The chart is lifted above provinces and roads so drags move
+                      The chart is lifted above counties and roads so drags move
                       the image, not the map. Turn off before tracing vertices.
                     </span>
                   </span>
@@ -1480,6 +2046,102 @@ export default function ProvinceMapEditor({
           </div>
         </div>
       </div>
+
+      {contextMenu ? (
+        <div
+          data-map-editor-ctx
+          className="fixed z-[100] min-w-[14rem] rounded border border-gold/25 bg-imperial shadow-lg py-1"
+          style={{
+            left: contextMenu.clientX,
+            top: contextMenu.clientY,
+          }}
+        >
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left font-serif text-sm text-parchment hover:bg-imperial-shadow/80"
+            onClick={() => addConnectedFromContext(contextMenu.nodeId)}
+          >
+            Add connected node here
+          </button>
+        </div>
+      ) : null}
+
+      {deleteNodeConfirm ? (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-ink/75 p-4"
+          role="presentation"
+          onClick={() => setDeleteNodeConfirm(null)}
+        >
+          <div
+            className="panel max-w-md w-full"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="panel-heading">Confirm removal</h3>
+            <div className="panel-body space-y-4">
+              <p className="font-serif text-sm text-parchment">
+                Delete {deleteNodeConfirm.name}? This will also remove all
+                connections to this node.
+              </p>
+              <div className="flex flex-wrap gap-2 justify-end">
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  onClick={() => setDeleteNodeConfirm(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-imperial text-xs border border-blood/40 text-blood"
+                  onClick={runDeleteNode}
+                >
+                  {isPending ? "Working…" : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteCountyConfirm ? (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-ink/75 p-4"
+          role="presentation"
+          onClick={() => setDeleteCountyConfirm(null)}
+        >
+          <div
+            className="panel max-w-md w-full"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="panel-heading">Confirm removal</h3>
+            <div className="panel-body space-y-4">
+              <p className="font-serif text-sm text-parchment">
+                Delete {deleteCountyConfirm.name}? This cannot be undone.
+              </p>
+              <div className="flex flex-wrap gap-2 justify-end">
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  onClick={() => setDeleteCountyConfirm(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-imperial text-xs border border-blood/40 text-blood"
+                  onClick={runDeleteCounty}
+                >
+                  {isPending ? "Working…" : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

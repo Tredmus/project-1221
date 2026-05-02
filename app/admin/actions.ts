@@ -13,7 +13,7 @@ interface NodeInput {
   key: string;
   name?: string;
   type?: "road" | "city" | "settlement" | "farm" | "mine" | "port" | "fortress";
-  province_id?: number;
+  county_id?: number;
   is_capital?: boolean;
   map_x: number;
   map_y: number;
@@ -136,7 +136,7 @@ export async function seedWorldAction(
     const rows = parsed.nodes.map((n) => ({
       name: n.name ?? null,
       type: n.type ?? "road",
-      province_id: n.province_id ?? null,
+      county_id: n.county_id ?? null,
       is_capital: n.is_capital ?? false,
       map_x: n.map_x,
       map_y: n.map_y,

@@ -3,7 +3,7 @@
  * PostgREST / drivers sometimes return jsonb as a JSON string; unwrap that
  * (and occasional double-encoding) before validating pairs.
  */
-export function parseProvincePolygon(raw: unknown): [number, number][] | null {
+export function parseCountyPolygon(raw: unknown): [number, number][] | null {
   if (raw == null) return null;
 
   let data: unknown = raw;

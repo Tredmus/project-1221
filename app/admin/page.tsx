@@ -15,7 +15,10 @@ export default async function AdminOverviewPage() {
 
   const tables = [
     "regions",
-    "provinces",
+    "empires",
+    "kingdoms",
+    "duchies",
+    "counties",
     "nodes",
     "node_connections",
     "cities",
@@ -69,7 +72,7 @@ export default async function AdminOverviewPage() {
             Seed nodes &amp; connections
           </Link>
           <Link href="/admin/map-editor" className="btn-imperial">
-            Province map editor
+            County map editor
           </Link>
           <Link href="/game/map" className="btn-ghost">
             View map

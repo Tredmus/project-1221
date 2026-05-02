@@ -40,7 +40,7 @@ export async function getCurrentCharacter(): Promise<CurrentCharacter> {
         home_city_id, node_id,
         home_city:cities!characters_home_city_id_fkey ( id, name ),
         current_node:nodes!characters_node_id_fkey (
-          id, name, type, map_x, map_y, province_id
+          id, name, type, map_x, map_y, county_id
         )
       `,
     )

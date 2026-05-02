@@ -1,7 +1,7 @@
 import { getCurrentCharacter } from "@/lib/game/getCurrentCharacter";
 import { createServerSupabase } from "@/lib/supabase/server";
 import GameMap, { type CharacterPresence } from "@/components/map/GameMap";
-import { parseProvincePolygon } from "@/lib/map/parseProvincePolygon";
+import { parseCountyPolygon } from "@/lib/map/parseCountyPolygon";
 import type { MapConnectionView, MapNodeView, NodeType } from "@/lib/types/game.types";
 
 export const metadata = {
@@ -21,12 +21,12 @@ export default async function MapPage() {
     { data: rawNodes },
     { data: rawConns },
     { data: rawChars },
-    { data: rawProvinces },
+    { data: rawCounties },
     { data: rawCities },
   ] = await Promise.all([
     supabase
       .from("nodes")
-      .select("id, name, type, map_x, map_y, province_id, is_capital"),
+      .select("id, name, type, map_x, map_y, county_id, is_capital"),
     supabase
       .from("node_connections")
       .select("node_a_id, node_b_id, road_type, travel_cost, min_tier_required"),
@@ -36,7 +36,7 @@ export default async function MapPage() {
       .from("characters")
       .select("id, name, node_id")
       .not("node_id", "is", null),
-    supabase.from("provinces").select("id, name, map_x, map_y, map_polygon"),
+    supabase.from("counties").select("id, name, map_x, map_y, map_polygon"),
     supabase.from("cities").select("id, node_id"),
   ]);
 
@@ -46,7 +46,7 @@ export default async function MapPage() {
     type: n.type as NodeType,
     map_x: Number(n.map_x),
     map_y: Number(n.map_y),
-    province_id: n.province_id,
+    county_id: n.county_id,
     is_capital: n.is_capital,
   }));
 
@@ -64,12 +64,12 @@ export default async function MapPage() {
     node_id: c.node_id as number | null,
   }));
 
-  const provinces = (rawProvinces ?? []).map((p) => ({
+  const counties = (rawCounties ?? []).map((p) => ({
     id: p.id as number,
     name: p.name as string,
     map_x: p.map_x != null && p.map_x !== "" ? Number(p.map_x) : null,
     map_y: p.map_y != null && p.map_y !== "" ? Number(p.map_y) : null,
-    map_polygon: parseProvincePolygon(p.map_polygon),
+    map_polygon: parseCountyPolygon(p.map_polygon),
   }));
 
   const cityLinks =
@@ -106,7 +106,7 @@ export default async function MapPage() {
         characterAP={character.action_points}
         characterTravelTier={character.travel_tier}
         otherCharacters={otherCharacters}
-        provinces={provinces}
+        counties={counties}
         cityLinks={cityLinks}
       />
     </div>

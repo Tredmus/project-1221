@@ -9,7 +9,7 @@ import { dijkstra, pathEdgeSet } from "@/lib/game/pathfinding";
 import { travelAction, TRAVEL_INITIAL_STATE } from "@/app/actions/travel";
 import {
   buildMapModel,
-  type ProvinceMapInput,
+  type CountyMapInput,
   projectLegacyXY,
   projectNode,
 } from "@/lib/map/buildMapModel";
@@ -21,13 +21,13 @@ export interface CharacterPresence {
   node_id: number | null;
 }
 
-export interface ProvinceOption {
+export interface CountyOption {
   id: number;
   name: string;
   /** Parchment coordinates; same space as `nodes.map_x` / `map_y`. */
   map_x: number | null;
   map_y: number | null;
-  /** Optional closed polygon for the province border (legacy x,y vertices). */
+  /** Optional closed polygon for the county border (legacy x,y vertices). */
   map_polygon: [number, number][] | null;
 }
 
@@ -44,8 +44,8 @@ interface Props {
   characterAP: number;
   characterTravelTier: number;
   otherCharacters: CharacterPresence[];
-  /** Game provinces (for labels and the hull click layer). */
-  provinces: ProvinceOption[];
+  /** Game counties (for labels and the hull click layer). */
+  counties: CountyOption[];
   /** city id keyed by node id for /game/city/[id] links. */
   cityLinks: CityNodeLink[];
 }
@@ -100,7 +100,7 @@ export default function GameMap({
   characterAP,
   characterTravelTier,
   otherCharacters,
-  provinces,
+  counties,
   cityLinks,
 }: Props) {
   const router = useRouter();
@@ -128,9 +128,9 @@ export default function GameMap({
     [nodes],
   );
 
-  const provincesById = useMemo(
-    () => new Map(provinces.map((p) => [p.id, p.name] as const)),
-    [provinces],
+  const countiesById = useMemo(
+    () => new Map(counties.map((p) => [p.id, p.name] as const)),
+    [counties],
   );
 
   const cityIdByNodeId = useMemo(() => {
@@ -149,8 +149,8 @@ export default function GameMap({
     return m;
   }, [otherCharacters, characterId]);
 
-  const provinceMapInputs = useMemo((): ProvinceMapInput[] => {
-    return provinces
+  const countyMapInputs = useMemo((): CountyMapInput[] => {
+    return counties
       .filter(
         (p) =>
           p.map_x != null &&
@@ -164,11 +164,11 @@ export default function GameMap({
         map_y: p.map_y!,
         map_polygon: p.map_polygon,
       }));
-  }, [provinces]);
+  }, [counties]);
 
   const mapModel = useMemo(
-    () => buildMapModel(VIEW_W, VIEW_H, nodes, provinceMapInputs),
-    [nodes, provinceMapInputs],
+    () => buildMapModel(VIEW_W, VIEW_H, nodes, countyMapInputs),
+    [nodes, countyMapInputs],
   );
 
   const zoomBehav = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
@@ -194,10 +194,10 @@ export default function GameMap({
       svg.on(".zoom", null);
       zoomBehav.current = null;
     };
-  }, [nodes, provinceMapInputs]);
+  }, [nodes, countyMapInputs]);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
+  const [selectedCountyId, setSelectedCountyId] = useState<number | null>(null);
 
   const selected =
     selectedId !== null ? nodesById.get(selectedId) ?? null : null;
@@ -306,12 +306,12 @@ export default function GameMap({
 
             <g ref={zoomLayerRef}>
               <g
-                className="province-hit pointer-events-auto"
+                className="county-hit pointer-events-auto"
                 style={{ isolation: "isolate" }}
               >
-                {mapModel.provinceHulls.map((ph) => (
+                {mapModel.countyHulls.map((ph) => (
                   <path
-                    key={ph.provinceId}
+                    key={ph.countyId}
                     d={ph.d}
                     fill="rgba(201, 164, 76, 0.14)"
                     stroke="rgba(233, 200, 122, 0.55)"
@@ -320,14 +320,14 @@ export default function GameMap({
                     style={{ cursor: "pointer" }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedProvinceId(ph.provinceId);
+                      setSelectedCountyId(ph.countyId);
                     }}
                   />
                 ))}
               </g>
 
-              <g className="province-labels pointer-events-none" aria-hidden>
-                {provinces
+              <g className="county-labels pointer-events-none" aria-hidden>
+                {counties
                   .filter(
                     (p) =>
                       p.map_x != null &&
@@ -560,25 +560,25 @@ export default function GameMap({
             </g>
           </svg>
           <p className="border-t border-gold/10 px-4 py-2 font-serif text-[0.65rem] text-parchment-deep/80">
-            Drag to pan, scroll to zoom. Province outlines follow nodes on your
+            Drag to pan, scroll to zoom. County outlines follow nodes on your
             road network.
           </p>
         </div>
       </div>
 
       <aside className="space-y-4">
-        {selectedProvinceId !== null ? (
+        {selectedCountyId !== null ? (
           <section className="panel">
-            <h2 className="panel-heading">Province</h2>
+            <h2 className="panel-heading">County</h2>
             <div className="panel-body space-y-3">
               <div className="font-display text-lg text-gold-bright leading-tight">
-                {provincesById.get(selectedProvinceId) ?? "Province"}
+                {countiesById.get(selectedCountyId) ?? "County"}
               </div>
               <div>
                 <div className="label-imperial mb-1">Roads & settlements</div>
                 <ul className="space-y-1">
                   {nodes
-                    .filter((n) => n.province_id === selectedProvinceId)
+                    .filter((n) => n.county_id === selectedCountyId)
                     .map((n) => (
                       <li key={n.id}>
                         <button
@@ -649,14 +649,14 @@ export default function GameMap({
                 ) : null}
 
                 <div className="text-xs text-parchment-deep/50 font-mono tabular-nums">
-                  {selected.province_id !== null
-                    ? provincesById.get(selected.province_id) ?? "—"
+                  {selected.county_id !== null
+                    ? countiesById.get(selected.county_id) ?? "—"
                     : "—"}
                 </div>
               </div>
             ) : (
               <p className="font-serif italic text-parchment-deep text-sm">
-                Click a province band or a node. Scroll to zoom the parchment.
+                Click a county band or a node. Scroll to zoom the parchment.
               </p>
             )}
           </div>
