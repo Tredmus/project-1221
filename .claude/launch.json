@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@1221/admin"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "game-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "web", "-w", "@1221/game", "--", "--port", "8081"],
+      "port": 8081
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 Working title. Living document: **Settled** means agreed in discussion; **Proposed** means drafted but not yet approved; **Open** means not decided. Ideas we parked live in [future-ideas.md](future-ideas.md).
 
-Last updated: 1 October 2026 (game date: 1 October 1226).
+Last updated: 2 October 2026 (game date: 2 October 1226).
 
 ---
 
@@ -53,9 +53,13 @@ The layers feed each other, but **hero power never buys political power**. Offic
 | Kingdom | 1+ duchies | Open |
 | Empire | Kingdoms | Open (e.g. the Bulgarian Tsardom, the Latin Empire, Nicaea, the Holy Roman Empire) |
 
-- **Main node types:** town, castle, mine, farm, monastery (more later). Each type gives different benefits (market and taxes, defense and recruits, ore and gems, food, piety and healing).
-- **Other nodes** (roads, crossroads, fords, passes, forests) are only for travel, PvE and events for now. Nobody controls them. Special non-main nodes (ruins, shrines, bandit lairs) come later.
-- Each node has a **biome** that decides its mobs and resources (wolves in forests, bandits on roads, raiders on the steppe, ore in hills).
+- **Main node types:** town, castle, mine, farm, monastery (more later). Each type gives different benefits (market and taxes, defense and recruits, ore and gems, food, piety and healing). **Only a county's main node has a main type**, and it lies inside its county.
+- **Other nodes** (road, crossroads, ford, pass, forest) are only for travel, PvE and events for now. Nobody controls them. Special non-main nodes (ruins, shrines, bandit lairs) come later.
+- Each node has a **biome** that decides its mobs and resources (wolves in forests, bandits on roads, raiders on the steppe, ore in hills). Draft biomes: plains, forest, hills, mountains, steppe, marsh, coast, desert.
+- **Roads** are plain links between two nodes for now (no terrain or length of their own, no sea routes yet).
+- Each county records its **people's culture and religion** (for the mismatch rules in 3.5 and 10).
+- Links up the hierarchy are optional while the map is drawn: a county can have no duchy yet, and a kingdom can sit outside any empire (e.g. Hungary).
+- Places have one name each for now; BG/EN place names come later.
 - **Open:** does taking a duchy's main county transfer its other counties?
 - Tier names are localized per culture in the interface (boyar lands, themes, duchies), but the code uses one generic hierarchy.
 
@@ -74,7 +78,7 @@ To fight thin player density: **suggested homelands** at sign-up that point new 
 - Fighting and gathering happen at your current node, so grinding needs no travel.
 
 ### 3.4 Cultures — Settled concept, draft list
-Your **country of birth sets your culture**. Each culture has signature recipes that others can only learn **from a master of that culture**: a player teacher, or an NPC master in that culture's towns after an apprenticeship.
+Your **country of birth sets your culture** (and religion). Countries are their own list, apart from the map tiers, because many are not kingdoms (Venice, the Cumans, the crusader states): each has a culture, a religion and a suggested starting county (the suggested homelands of 3.2). Each culture has signature recipes that others can only learn **from a master of that culture**: a player teacher, or an NPC master in that culture's towns after an apprenticeship.
 
 | Culture | Realms (examples) | Signature (draft) |
 |---|---|---|
@@ -92,6 +96,8 @@ Your **country of birth sets your culture**. Each culture has signature recipes 
 | Armenian | Cilicia | ? |
 | Others | Poland, Rus', Scandinavia, the Baltic… | ? |
 
+The database starts with the 12 named cultures; "Others" waits until the list is final.
+
 **Open:** the final culture list, signature recipes, and whether culture gives any non-crafting bonuses.
 
 ### 3.5 Religion — Settled as a system, details open
@@ -103,6 +109,8 @@ Your **country of birth sets your culture**. Each culture has signature recipes 
 | Nizari Ismaili | Alamut / Masyaf | The Assassins (NPC faction) |
 | Heresies and pagans | — | Cathars, Bogomils, Baltic pagans, Tengrism |
 
+The database starts with Catholic, Orthodox, Sunni Islam, Nizari Ismaili, Cathar, Bogomil, Baltic pagan and Tengri as separate religions.
+
 Planned: a church office track parallel to the secular one, unrest when a ruler and the people differ in faith, and crusade and jihad calls as player-triggered events.
 
 ---
@@ -113,6 +121,8 @@ Planned: a church office track parallel to the secular one, unrest when a ruler 
 - **You start as a nobody.** Being "somebody" means standing among real people (a clan, an office), never a starting title.
 - A **single-player story line** provides the personal power fantasy, but it never grants political power or titles.
 - At creation: name, country (which sets culture and religion), portrait, heraldry.
+- **One character per account.**
+- **Proposed:** character names are unique (ignoring case), 2–24 characters. Starting attribute values and where a new character appears are still open (phase 2).
 
 ### 4.2 Attributes — Settled (draft values)
 | Attribute | Drives |
@@ -352,11 +362,15 @@ Feasts consume goods and earn a Chronicle entry plus a buff for guests. They're 
 ### 7.3 Offices and the church — Open
 What each office can actually do (taxes, granary, treasury spending, laws, army command) is still to be designed.
 
+The database has a skeleton only: mayor, duke and king offices; an office held by an NPC just stores the NPC's name; elections with candidates and votes, but no voting rules yet (who may vote, gates, terms). **Proposed:** until that is designed, a vote is visible only to the voter and admins.
+
 ---
 
 ## 8. Clans — Settled (v1)
-- A player creates a clan and becomes its leader.
-- The leader can pass on leadership, invite and kick members.
+- A player creates a clan and becomes its leader. One clan per character; clan names are unique.
+- The leader can pass on leadership, invite and kick members. Invitations must be accepted; members can leave.
+- The leader hands over leadership before leaving; a leader who is the last member disbands the clan by leaving.
+- **Proposed:** clan names have 3–32 characters. If a leader's account is deleted, the longest-serving member becomes leader (or the clan disbands if nobody is left).
 - Proposed additions: clan heraldry (generated coat of arms), a clan tag shown with names and in the Chronicle, clan chat.
 - Later: treasury and storage, ranks, becoming a noble house.
 
@@ -433,7 +447,7 @@ supabase/
 ```
 
 - **The server is the authority.** Battles are resolved on the server with fixed random seeds. Clients only play back the replay.
-- The admin is a separate app because the player app's web code is public. Security comes from server-side roles and row-level security.
+- The admin is a separate app because the player app's web code is public. Security comes from server-side roles and row-level security. The only role for now is `admin`, checked inside the database. The admin UI is English only; the game app has BG/EN.
 - Mobile builds through EAS (iOS builds in the cloud, no Mac needed).
 - **Risk to test early:** map and battle rendering in Expo (react-native-svg vs Skia) on phones and in browsers.
 - A fresh start: nothing is reused from the old Imperium codebase.
@@ -445,6 +459,8 @@ supabase/
 - Coordinates stored as real longitude/latitude, so a historical map image can be laid underneath to trace over, and coastlines and rivers can come from real data (Natural Earth).
 - Snapping to coastlines and neighboring borders.
 - **Nodes:** create a standalone node, or create a new node **from the selected node**, which connects the two automatically. Roads can also be drawn between existing nodes. Node type and biome are set in a side panel.
+- **Projection:** the editor shows the map in Web Mercator (MapLibre GL), which works with standard web-map tools and already-georeferenced historical map tiles. The game map's projection is decided separately in the phase 2 map test.
+- **Underlays:** Natural Earth 10m coastline, land, rivers and lakes, clipped to lon −30…65, lat 10…75. Reference images can be several; each is a box you drag and resize, with an opacity slider (no multi-point georeferencing). XYZ tile layers of already georeferenced maps work too.
 
 ---
 
@@ -464,3 +480,9 @@ supabase/
 | 2026-10-01 | Dukes and kings elected, as in RK (for now). |
 | 2026-10-01 | Hero loop: energy plus meals, IH-style contracts, house, real-season farming (summer stockpiles, winter wars), level cap 50, use-based gathering skills. |
 | 2026-10-01 | Economy model: NPC-only money creation, energy as the value anchor, local markets with weight (overweight = can't travel), food spoilage and salt, no item binding, public treasury ledger with theft allowed, currency called "coins". |
+| 2026-10-02 | Country of birth is its own list (culture, religion, starting county), separate from the map tiers. One character per account. |
+| 2026-10-02 | Map editor in Web Mercator (MapLibre GL); the game map's projection is decided in the phase 2 map test. |
+| 2026-10-02 | Map rules for the build: only the main node has a main type and lies in its county; draft biomes; roads are plain links; hierarchy links optional while drawing; counties record their people's culture and religion; one name per place for now. |
+| 2026-10-02 | Seed data: 12 named cultures (no "Others" yet); 8 religions, heresies and pagan faiths separate. |
+| 2026-10-02 | Clans v1 details: one clan per character, unique names, invites accepted by the invitee, the leader hands over before leaving, the last member leaving disbands. |
+| 2026-10-02 | Offices and elections as a skeleton (NPC holders by name, no voting rules yet). Only an `admin` role; admin UI English only. Natural Earth 10m underlays; reference images as draggable boxes. |

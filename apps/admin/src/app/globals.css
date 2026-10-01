@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* A calm tool palette: parchment ground, white panels, one madder-red accent. */
+@theme {
+  --color-ground: #f4f2ee;
+  --color-panel: #ffffff;
+  --color-line: #e2ded6;
+  --color-ink: #1f1b16;
+  --color-muted: #6b645a;
+  --color-accent: #7a3b2e;
+  --color-accent-soft: #f3e6e2;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+  --color-success: #2e7d32;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

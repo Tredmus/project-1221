@@ -1,0 +1,48 @@
+{
+  "app": {
+    "title": "Project 1221",
+    "tagline": "Europe and the Near East, {{day}} {{month}} {{year}}"
+  },
+  "months": {
+    "1": "January",
+    "2": "February",
+    "3": "March",
+    "4": "April",
+    "5": "May",
+    "6": "June",
+    "7": "July",
+    "8": "August",
+    "9": "September",
+    "10": "October",
+    "11": "November",
+    "12": "December"
+  },
+  "connection": {
+    "checking": "Reaching the world…",
+    "connected": "The world is reachable",
+    "error": "Can't reach the world: {{message}}"
+  },
+  "common": {
+    "language": "Language",
+    "english": "English",
+    "bulgarian": "Български",
+    "retry": "Try again"
+  },
+  "errors": {
+    "unknown": "Something went wrong. Please try again.",
+    "not_admin": "Only admins can do this.",
+    "no_character": "Create your character first.",
+    "already_in_clan": "Leave your clan first.",
+    "clan_name_invalid": "A clan name has 3 to 32 characters.",
+    "clan_name_taken": "That clan name is taken.",
+    "not_clan_leader": "Only the clan leader can do this.",
+    "character_not_found": "That character doesn't exist.",
+    "target_in_clan": "They are already in a clan.",
+    "already_invited": "They already have an invitation.",
+    "invite_not_found": "That invitation is no longer open.",
+    "not_in_clan": "You are not in a clan.",
+    "not_clan_member": "They are not in your clan.",
+    "cannot_kick_self": "You can't kick yourself. Hand over leadership or leave instead.",
+    "leader_must_hand_over": "Hand leadership to another member before you leave."
+  }
+}
